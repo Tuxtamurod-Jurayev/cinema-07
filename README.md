@@ -1,23 +1,34 @@
-# Cinema Telegram Bot (@kinolar_07_bot)
+# Tarjima Kinolar Telegram Boti (@kinolar_07_bot)
 
-Kino qidirish, yuklash, tomosha qilish va Premium obuna tizimiga ega Telegram bot.
+Tarjima kinolarni qidirish, tomosha qilish va yuklab olish uchun toza, optimallashtirilgan Telegram bot.
 
-## 🛠 Texnologiyalar
-- **PHP** 8.x
-- **MySQL / MariaDB**
-- **Telegram Bot API**
+## 🌟 Imkoniyatlar
+
+### 👤 Foydalanuvchilar uchun:
+- **Kino kodi orqali tomosha qilish:** Kino kodini (masalan: `860`) yuborish yoki do'stlar yuborgan havola (`/start 860`) orqali videoni yuklab olish.
+- **Kino nomi bo'yicha qidiruv:** Istalgan so'z/nom yozilsa, qidiruv natijalari inline tugmalar va sahifalash (keyingi/oldingi) bilan chiqadi.
+- **Top 10 Kinolar (`/top`):** Eng ko'p ko'rilgan 10 ta eng mashhur film ro'yxati.
+- **Majburiy kanallar a'zoligi:** Botdan foydalanishdan oldin kanallarga a'zolikni tekshirish.
+
+### 🛡 Administratorlar uchun (`/panel`):
+- **📥 Kino yuklash:** Avtomatik yangi kod berish va kanalga post chiqarish.
+- **➕ Kino qo'shish (Kod bilan):** Ixtiyoriy kod (masalan: 1, 10, 860) orqali kino kiritish.
+- **📝 Kino tahrirlash:** Kino nomlarini o'zgartirish.
+- **🗑️ Kino o‘chirish:** Keraksiz filmlarni bazadan o'chirish.
+- **📢 Kanallar sozlamalari:** Majburiy a'zolik kanallarini qo'shish va o'chirish.
+- **📊 Statistika:** Foydalanuvchilar, faol/nofaol obunachilar, yuklashlar soni.
+- **✉ Xabar Yuborish:** Barcha foydalanuvchilarga xabar tarqatish (Broadcast).
+- **🤖 Bot holati:** Botni yoqish / o'chirish.
 
 ## ⚙️ Sozlamalar
-- **Bot Token**: `8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw`
-- **Asosiy Admin ID**: `365446274`
-- **Admin Aloqa**: `+998930406364`
+- **Bot:** [@kinolar_07_bot](https://t.me/kinolar_07_bot)
+- **Token:** `8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw`
+- **Asosiy Admin ID:** `365446274`
+- **Admin Telefon:** `+998930406364`
 
-## 🚀 Ishga tushirish (O'rnatish)
-1. `db.sql` faylini MySQL ma'lumotlar bazangizga import qiling.
-2. `sql.php` faylida bazaga ulanish parametrlarini (host, user, password, db) ko'rsating.
-3. Bot fayllarini veb-serveringizga (Apache/Nginx/Hosting/VPS) yuklang.
-4. Telegram webhook o'rnating:
+## 🚀 Ishga tushirish
+1. Lokal kompyuterda: `start_bot.bat` faylini ishga tushiring.
+2. Webhook orqali:
 ```
 https://api.telegram.org/bot8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw/setWebhook?url=https://SIZNING_DOMENINGIZ/bot.php
 ```
-5. Botga `/start` yoki `/panel` buyrug'ini yuborib tekshiring.

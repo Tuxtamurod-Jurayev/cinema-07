@@ -1,1969 +1,952 @@
 <?php
 ob_start();
-date_Default_timezone_set('Asia/Tashkent');
+date_default_timezone_set('Asia/Tashkent');
 
- 
-
+// ==========================================
+// ⚙️ ASOSIY SOZLAMALAR
+// ==========================================
 const API_KEY = "8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw";
-$TokhtasinovUz = "365446274";
+$admin_id = "365446274";
 $admin_phone = "998930406364";
-$owners = [$TokhtasinovUz];
+$owners = [$admin_id];
 $bot = "kinolar_07_bot";
-
-function bot($method,$datas=[]){
-$url = "https://api.telegram.org/bot".API_KEY."/".$method;
-$ch = curl_init();
-curl_setopt($ch,CURLOPT_URL,$url);
-curl_setopt($ch,CURLOPT_RETURNTRANSFER,true);
-curl_setopt($ch,CURLOPT_POSTFIELDS,$datas);
-return json_decode(curl_exec($ch));
-}
-
- 
 
 require_once 'sql.php';
 
-function accl($qid,$text,$j=false){
-return bot('answerCallbackQuery',[
-'callback_query_id'=>$qid,
-'text'=>$text,
-'show_alert'=>$j,
-]);
+// ==========================================
+// 🛠 TELEGRAM BOT FUNKSIYALARI
+// ==========================================
+function bot($method, $datas = []) {
+    $url = "https://api.telegram.org/bot" . API_KEY . "/" . $method;
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    $res = curl_exec($ch);
+    curl_close($ch);
+    return json_decode($res);
 }
 
-function del(){
-global $cid,$mid,$cid2,$mid2;
-return bot('deleteMessage',[
-'chat_id'=>"$cid2$cid",
-'message_id'=>"$mid2$mid",
-]);
+function sms($chat_id, $text, $keyboard = null) {
+    $params = [
+        'chat_id' => $chat_id,
+        'text' => $text,
+        'parse_mode' => 'HTML',
+    ];
+    if ($keyboard !== null) {
+        $params['reply_markup'] = $keyboard;
+    }
+    return bot('sendMessage', $params);
 }
 
-
-function edit($id,$mid,$tx,$m){
-return bot('editMessageText',[
-'chat_id'=>$id,
-'message_id'=>$mid,
-'text'=>$tx,
-'parse_mode'=>"HTML",
-'reply_markup'=>$m,
-]);
+function edit($chat_id, $message_id, $text, $keyboard = null) {
+    $params = [
+        'chat_id' => $chat_id,
+        'message_id' => $message_id,
+        'text' => $text,
+        'parse_mode' => 'HTML',
+    ];
+    if ($keyboard !== null) {
+        $params['reply_markup'] = $keyboard;
+    }
+    return bot('editMessageText', $params);
 }
 
-
-
-function sms($id,$tx,$m){
-return bot('sendMessage',[
-'chat_id'=>$id,
-'text'=>$tx,
-'parse_mode'=>"HTML",
-'reply_markup'=>$m,
-]);
+function del($chat_id, $message_id) {
+    return bot('deleteMessage', [
+        'chat_id' => $chat_id,
+        'message_id' => $message_id,
+    ]);
 }
 
+function accl($callback_query_id, $text, $alert = false) {
+    return bot('answerCallbackQuery', [
+        'callback_query_id' => $callback_query_id,
+        'text' => $text,
+        'show_alert' => $alert,
+    ]);
+}
 
- 
-
-function step($id,$val){
+function step($user_id, $val) {
     global $connect;
-    mysqli_query($connect,"UPDATE users SET step = '$val' WHERE user_id=$id");
+    $val = $connect->real_escape_string($val);
+    $connect->query("UPDATE users SET step = '$val' WHERE user_id = '$user_id'");
 }
 
-function admin($id){
-    global $connect, $TokhtasinovUz;
-    if($id == $TokhtasinovUz){
+function admin($user_id) {
+    global $connect, $admin_id;
+    if ($user_id == $admin_id) {
         return true;
     }
-    $result = mysqli_query($connect,"SELECT * FROM admins WHERE user_id = '$id'");
-    if($result && mysqli_num_rows($result) > 0){
+    $res = $connect->query("SELECT id FROM admins WHERE user_id = '$user_id'");
+    return ($res && $res->num_rows > 0);
+}
+
+function joinchat($user_id) {
+    global $connect;
+    if (admin($user_id)) {
         return true;
     }
-    return false;
-}
+    $result = $connect->query("SELECT * FROM kanallar");
+    if (!$result || $result->num_rows == 0) {
+        return true;
+    }
 
-function joinchat($id){
-global $connect;
-$result = $connect->query("SELECT * FROM `kanallar`");
-if($result->num_rows > 0 and admin($id)==false) {
-$no_subs = 0;
-$button = [];
-while($row = $result->fetch_assoc()){
-    $type = $row['type'];
-    $link = $row['link'];
-    $channelID = $row['channelID'];
-    $title = $row['title'];
-    $gettitle = bot('getchat',['chat_id'=>$channelID])->result->title;
-    if($type == "lock" or $type == "request"){
-        if($type == "request"){
-            $check = $connect->query("SELECT * FROM `requests` WHERE id = '$id' AND chat_id = '$channelID'");
-            if($check->num_rows > 0){
-                $button[]=['text'=>"✅ $gettitle",'url'=>$link];
+    $no_subs = 0;
+    $buttons = [];
+    while ($row = $result->fetch_assoc()) {
+        $type = $row['type'];
+        $link = $row['link'];
+        $channelID = $row['channelID'];
+        $title = $row['title'];
+
+        if ($type == "lock" || $type == "request") {
+            $chat_info = bot('getChat', ['chat_id' => $channelID]);
+            $gettitle = $chat_info->result->title ?? "Kanal";
+
+            if ($type == "request") {
+                $check = $connect->query("SELECT user_id FROM requests WHERE id = '$user_id' AND chat_id = '$channelID'");
+                if ($check && $check->num_rows > 0) {
+                    $buttons[] = ['text' => "✅ $gettitle", 'url' => $link];
+                } else {
+                    $buttons[] = ['text' => "❌ $gettitle", 'url' => $link];
+                    $no_subs++;
+                }
+            } elseif ($type == "lock") {
+                $member = bot('getChatMember', ['chat_id' => $channelID, 'user_id' => $user_id]);
+                $status = $member->result->status ?? 'left';
+                if ($status == "left" || $status == "kicked") {
+                    $buttons[] = ['text' => "❌ $gettitle", 'url' => $link];
+                    $no_subs++;
+                } else {
+                    $buttons[] = ['text' => "✅ $gettitle", 'url' => $link];
+                }
             }
-            else{
-                $button[]=['text'=>"❌ $gettitle",'url'=>$link];
-                $no_subs++;
-            }
-        }
-        elseif($type == "lock"){
-            $check = bot('getChatMember',['chat_id'=>$channelID,'user_id'=>$id])->result->status;
-            if($check == "left"){
-                $button[]=['text'=>"❌ $gettitle",'url'=>$link];
-                $no_subs++;
-            }
-            else{
-            $button[]=['text'=>"✅ $gettitle",'url'=>$link];
-            }
+        } elseif ($type == "social") {
+            $nom = base64_decode($title);
+            $buttons[] = ['text' => $nom ?: 'Kanal', 'url' => $link];
         }
     }
-elseif($type == "social"){
-    $button[]=['text'=>base64_decode($title),'url'=>$link];
-}
-}
-if($no_subs > 0) {
-    $button[]=['text'=>"✅ Tekshirish",'callback_data' => "checkSub"];
-    $keyboard2=array_chunk($button,1);
-    $keyboard=json_encode([
-    'inline_keyboard'=>$keyboard2,
-]);
-bot('sendMessage',[
-'chat_id'=>$id,
-'text'=>"<b>❌ Kechirasiz botimizdan foydalanishdan oldin ushbu kanallarga a'zo bo'lishingiz kerak.</b>",
-'parse_mode'=>'html',
-'reply_markup'=>$keyboard
-]);
-exit();
-}else return true;
-}else return true;
+
+    if ($no_subs > 0) {
+        $buttons[] = ['text' => "✅ A'zo bo'ldim / Tekshirish", 'callback_data' => "checkSub"];
+        $keyboard = json_encode(['inline_keyboard' => array_chunk($buttons, 1)]);
+        bot('sendMessage', [
+            'chat_id' => $user_id,
+            'text' => "<b>❌ Botdan foydalanish uchun quyidagi kanallarga a'zo bo'ling:</b>",
+            'parse_mode' => 'HTML',
+            'reply_markup' => $keyboard
+        ]);
+        exit();
+    }
+    return true;
 }
 
- 
-
- 
- 
- 
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
+// ==========================================
+// 📥 KELGAN XABARNI QABUL QILISH
+// ==========================================
 $update = json_decode(file_get_contents('php://input'));
+if (!$update) exit();
+
 $message = $update->message ?? null;
-$cid = $message->chat->id ?? null;
-$name = $message->chat->first_name ?? '';
-$tx = $message->text ?? '';
-$mid = $message->message_id ?? null;
-$type = $message->chat->type ?? '';
-$text = $message->text ?? '';
-$uid= $message->from->id ?? null;
-$name = $message->from->first_name ?? '';
-$familya = $message->from->last_name ?? '';
-$bio = $message->from->about ?? '';
-$username = $message->from->username ?? '';
-$chat_id = $cid;
-$message_id = $mid;
-$reply = $message->reply_to_message->text ?? null;
-$nameru = "<a href='tg://user?id=$uid'>$name $familya</a>";
-$photo = $message->photo ?? null;
-$file = !empty($photo) ? $photo[count($photo)-1]->file_id : null;
-
-$botdel = $update->my_chat_member->new_chat_member ?? null; 
-$botdelid = $update->my_chat_member->from->id ?? null; 
-$userstatus = $botdel->status ?? null; 
-
-$contact = $message->contact ?? null;
-$contact_id = $contact->user_id ?? null;
-$contact_user = $contact->username ?? null;
-$contact_name = $contact->first_name ?? null;
-$phone = $contact->phone_number ?? null;
-
+$callback = $update->callback_query ?? null;
 $chat_join_request = $update->chat_join_request ?? null;
-$join_chat_id = $chat_join_request->chat->id ?? null;
-$join_user_id = $chat_join_request->from->id ?? null;
+$my_chat_member = $update->my_chat_member ?? null;
 
-if(isset($chat_join_request)){
-$connect->query("INSERT INTO requests (id, chat_id) VALUES ('$join_user_id', '$join_chat_id')");
+// Foydalanuvchi botni bloklaganini tekshirish
+if ($my_chat_member) {
+    $uid = $my_chat_member->from->id;
+    $status = $my_chat_member->new_chat_member->status ?? '';
+    if ($status == "kicked") {
+        $connect->query("UPDATE users SET holat = '❌' WHERE user_id = '$uid'");
+        $date = date('d.m.Y H:i');
+        $connect->query("INSERT INTO left_users (user_id, date) VALUES ('$uid', '$date')");
+    }
 }
 
-
-//inline uchun metodlar
-$callback_query = $update->callback_query ?? null;
-$inline_query = $update->inline_query ?? null;
-$data = $callback_query->data ?? null;
-$qid = $callback_query->id ?? null;
-$id = $inline_query->id ?? null;
-$query = $inline_query->query ?? null;
-$query_id = $inline_query->from->id ?? null;
-$cid2 = $callback_query->message->chat->id ?? null;
-$mid2 = $callback_query->message->message_id ?? null;
-$callfrid = $callback_query->from->id ?? null;
-$callname = $callback_query->from->first_name ?? '';
-$calluser = $callback_query->from->username ?? '';
-$surname = $callback_query->from->last_name ?? '';
-$about = $callback_query->from->about ?? '';
-$nameuz = "<a href='tg://user?id=$callfrid'>$callname $surname</a>";
-
-// <--------- @obito_us --------->
-
-if($botdel){ 
-if($userstatus=="kicked"){ 
-mysqli_query($connect,"UPDATE users SET holat = '❌' WHERE user_id = $botdelid");
-$date = date('d.m.Y H:i');
-mysqli_query($connect,"INSERT INTO `left_users` (`user_id`, `date`) VALUES ('$botdelid', '$date')");
-}
+// Kanalga qo'shilish so'rovi
+if ($chat_join_request) {
+    $j_user = $chat_join_request->from->id;
+    $j_chat = $chat_join_request->chat->id;
+    $connect->query("INSERT INTO requests (id, chat_id) VALUES ('$j_user', '$j_chat')");
 }
 
-if(isset($message)){
-mysqli_query($connect,"UPDATE users SET holat = '✅' WHERE user_id = $cid");
-$result = mysqli_query($connect,"SELECT * FROM left_users WHERE user_id = $cid");
-$row = mysqli_fetch_assoc($result);
-if($row){
-mysqli_query($connect,"DELETE FROM left_users WHERE user_id = $cid");
-}
-}
+$cid = $message->chat->id ?? ($callback->message->chat->id ?? null);
+$mid = $message->message_id ?? ($callback->message->message_id ?? null);
+$text = $message->text ?? '';
+$data = $callback->data ?? '';
+$qid = $callback->id ?? '';
+$first_name = $message->from->first_name ?? ($callback->from->first_name ?? '');
 
- 
+if (!$cid) exit();
 
- 
-
- 
-
-
- 
-
- 
-
- 
-
- 
-
-if(isset($message)){
-$result = mysqli_query($connect,"SELECT * FROM users WHERE user_id = '$cid'");
-$row = mysqli_fetch_assoc($result);
-if(!$row){
-$registered_date = date("d.m.Y H:i");
-mysqli_query($connect,"INSERT INTO users(`user_id`,`holat`,`vaqt`,`step`) VALUES ('$cid','✅','$registered_date','none')");
-}
-}
-
-if(!is_dir("step")) {
-    @mkdir("step", 0777, true);
-}
-$test1 = file_exists("step/test1.txt") ? file_get_contents("step/test1.txt") : "";
-$settings = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM settings WHERE id = 1;"));
-$kanalcha = $settings['movieChannel'] ?? '';
-$sub_price = $settings['sub_price'] ?? 0;
+// Sozlamalarni olish
+$settings = mysqli_fetch_assoc(mysqli_query($connect, "SELECT * FROM settings WHERE id = 1"));
+$kanalcha = $settings['movieChannel'] ?? '@kinolar_07_bot';
 $holat = $settings['status'] ?? '✅';
 
-$user = mysqli_query($connect,"SELECT * FROM users WHERE user_id = '$cid'");
-$step = "none";
-if($user && mysqli_num_rows($user) > 0){
-    $a = mysqli_fetch_assoc($user);
-    $step = $a['step'] ?? 'none';
+// Bot o'chiqligini tekshirish
+if ($holat == "❌" && !admin($cid)) {
+    if ($text) {
+        sms($cid, "⛔️ <b>Bot vaqtinchalik o'chirilgan!</b>\n\n<i>Botda texnik ta'mirlash ishlari olib borilmoqda.</i>");
+    } elseif ($data) {
+        accl($qid, "⛔️ Bot vaqtinchalik o'chirilgan!", true);
+    }
+    exit();
 }
 
-// <--------- @obito_us --------->
+// Foydalanuvchini bazaga kiritish
+if ($message) {
+    $user_check = $connect->query("SELECT user_id, step FROM users WHERE user_id = '$cid'");
+    if ($user_check && $user_check->num_rows == 0) {
+        $registered_date = date("d.m.Y H:i");
+        $connect->query("INSERT INTO users (user_id, holat, vaqt, step) VALUES ('$cid', '✅', '$registered_date', 'none')");
+        $step = "none";
+    } else {
+        $row = $user_check->fetch_assoc();
+        $step = $row['step'] ?? 'none';
+        $connect->query("UPDATE users SET holat = '✅' WHERE user_id = '$cid'");
+        $connect->query("DELETE FROM left_users WHERE user_id = '$cid'");
+    }
+} else {
+    $user_check = $connect->query("SELECT step FROM users WHERE user_id = '$cid'");
+    $step = ($user_check && $user_check->num_rows > 0) ? $user_check->fetch_assoc()['step'] : 'none';
+}
 
+// ==========================================
+// 📱 MENYULAR VA TUGMALAR
+// ==========================================
 $menu = json_encode([
-'inline_keyboard'=>[
-[['text'=>"🔎 Kinolarni qidirish",'url'=>"https://t.me/".str_ireplace("@",'',$kanalcha)]],
-]
+    'inline_keyboard' => [
+        [['text' => "🔎 Kinolar kanalimiz", 'url' => "https://t.me/" . str_replace('@', '', $kanalcha)]]
+    ]
 ]);
 
 $panel = json_encode([
-'resize_keyboard'=>true,
-'keyboard'=>[
-[['text'=>"📢 Kanallar sozlamalari"]],
-[['text'=>"📺 Kino sozlamalari"],['text'=>"👨🏻‍⚖️ Adminlar sozlamalari"]],
-[['text'=>"📊 Statistika"],['text'=>"✉ Xabar Yuborish"]],
-[['text'=>"🤖 Bot holati"],['text'=>"◀️ Orqaga"]],
-]
-]);
-
-$channel_manager = json_encode([
-'resize_keyboard'=>true,
-'keyboard'=>[
-[['text'=>"➕ Kanal qo'shish"],['text'=>"🗑️ Kanal o'chirish"]],
-[['text'=>"*️⃣ Qo'shimcha kanallar"]],
-[['text'=>"🗄 Boshqarish"]],
-]
+    'resize_keyboard' => true,
+    'keyboard' => [
+        [['text' => "📺 Kino sozlamalari"], ['text' => "📢 Kanallar sozlamalari"]],
+        [['text' => "📊 Statistika"], ['text' => "✉ Xabar Yuborish"]],
+        [['text' => "👨🏻‍⚖️ Adminlar sozlamalari"], ['text' => "🤖 Bot holati"]],
+        [['text' => "◀️ Asosiy menyu"]]
+    ]
 ]);
 
 $movie_manager = json_encode([
-'resize_keyboard'=>true,
-'keyboard'=>[
-[['text'=>"📥 Kino yuklash"],['text'=>"🗑️ Kino o‘chirish"]],
-[['text'=>"➕ Kino qo'shish"],['text'=>"📝 Kino tahrirlash"]],
-[['text'=>"🗄 Boshqarish"]],
-]
+    'resize_keyboard' => true,
+    'keyboard' => [
+        [['text' => "📥 Kino yuklash"], ['text' => "➕ Kino qo'shish (Kod bilan)"]],
+        [['text' => "📝 Kino tahrirlash"], ['text' => "🗑️ Kino o‘chirish"]],
+        [['text' => "🗄 Boshqarish"]]
+    ]
+]);
+
+$channel_manager = json_encode([
+    'resize_keyboard' => true,
+    'keyboard' => [
+        [['text' => "➕ Kanal qo'shish"], ['text' => "🗑️ Kanal o'chirish"]],
+        [['text' => "*️⃣ Asosiy kino kanali"]],
+        [['text' => "🗄 Boshqarish"]]
+    ]
 ]);
 
 $admin_manager = json_encode([
-'resize_keyboard'=>true,
-'keyboard'=>[
-[['text'=>"➕ Administrator qo'shish"],['text'=>"🗑️ Administrator o‘chirish"]],
-[['text'=>"📋 Administrator ro'yxati"]],
-[['text'=>"🗄 Boshqarish"]],
-]
+    'resize_keyboard' => true,
+    'keyboard' => [
+        [['text' => "➕ Administrator qo'shish"], ['text' => "🗑️ Administrator o‘chirish"]],
+        [['text' => "📋 Administrator ro'yxati"]],
+        [['text' => "🗄 Boshqarish"]]
+    ]
 ]);
 
-$back = json_encode([
-'resize_keyboard'=>true,
-'keyboard'=>[
-[['text'=>"◀️ Orqaga"]],
-]
+$back_admin = json_encode([
+    'resize_keyboard' => true,
+    'keyboard' => [
+        [['text' => "🗄 Boshqarish"]]
+    ]
 ]);
 
-$aort = json_encode([
-'resize_keyboard'=>true,
-'keyboard'=>[
-[['text'=>"🗄 Boshqarish"]],
-]
-]);
+// ==========================================
+// 🎬 FOYDALANUVCHI BUYRUQLARI
+// ==========================================
 
- 
+// /start
+if (strpos(strtolower($text), "/start") === 0) {
+    joinchat($cid);
+    
+    // Deep-link: /start 860
+    $parts = explode(" ", $text);
+    if (isset($parts[1]) && is_numeric($parts[1])) {
+        $kino_code = $parts[1];
+        send_movie_by_code($cid, $kino_code);
+        exit();
+    }
 
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
-if($text){
-if($holat == "❌" and !admin($cid)==1){
-sms($cid,"⛔️ <b>Bot vaqtinchalik o'chirilgan!</b>
-
-<i>Botda ta'mirlash ishlari olib borilayotgan bo'lishi mumkin!</i>",json_encode(['remove_keyboard'=>true]));
-exit();
-}
+    sms($cid, "<b>👋 Assalomu alaykum $first_name, botimizga xush kelibsiz!</b>\n\n<i>✍🏻 Kerakli tarjima kino kodini yoki nomini yuboring:</i>", $menu);
+    step($cid, "none");
+    exit();
 }
 
-if($data){
-if($holat == "❌" and !admin($cid2)==1){
-accl($qid,"⛔️ Bot vaqtinchalik o'chirilgan!
-
-Botda ta'mirlash ishlari olib borilayotgan bo'lishi mumkin!",1);
-exit();
-}
-}
-
-// <--------- @obito_us --------->
-
-if((strtolower($text) == "/start") and joinchat($cid)==1){	
-sms($cid,"<b>👋 Assalomu alaykum $name  botimizga xush kelibsiz.</b>
-
-<i>✍🏻 Kino kodini yuboring.</i>",$menu);
-@unlink("step/test1.txt");
-step($cid,"none");
-exit();
+// Obunani qayta tekshirish
+if ($data == "checkSub") {
+    del($cid, $mid);
+    if (joinchat($cid)) {
+        sms($cid, "<b>👋 Assalomu alaykum $first_name, a'zoligingiz tasdiqlandi!</b>\n\n<i>✍🏻 Kino kodini yoki nomini yuboring:</i>", $menu);
+    }
+    exit();
 }
 
-if($text == "◀️ Orqaga"){
-$elid=sms($cid,"<i>⏱ Kuting...</i>",json_encode(['remove_keyboard'=>true]))->result->message_id;
-bot('deleteMessage',['chat_id'=>$cid,'message_id'=>$elid]);
-sms($cid,"<b>👋 Assalomu alaykum $name  botimizga xush kelibsiz.</b>
-
-<i>✍🏻 Kino kodini yuboring.</i>",$menu);
-step($cid,"none");
-exit;
+// Bosh menyuga qaytish
+if ($text == "◀️ Asosiy menyu" || $text == "◀️ Orqaga") {
+    sms($cid, "<b>Bosh menyu:</b>\n\n<i>✍🏻 Kino kodini yoki nomini yuboring:</i>", $menu);
+    step($cid, "none");
+    exit();
 }
 
-// <--------- @obito_us --------->
-
- 
-
- 
-
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
-if($text == "🗄 Boshqarish" or $text=="/panel"){
-if(admin($cid)==1){
-sms($cid,"<b>Admin paneliga xush kelibsiz!</b>",$panel);
-@unlink("step/test1.txt");
-step($cid,"none");
-exit();
-}else{
-sms($cid,"<b>⚠️ Kechirasiz, bu bo'limga kirish faqat administratorlar uchun ochiq!</b>",null);
-sms($TokhtasinovUz,"$cid kirishga urindi.",null);
-}
+// Top 10 kinolar
+if ($text == "/top" || $data == "topRating") {
+    if ($data) del($cid, $mid);
+    $result = $connect->query("SELECT * FROM movie_data ORDER BY downloads DESC LIMIT 10");
+    if ($result && $result->num_rows > 0) {
+        $msg = "🔥 <b>Eng ko'p ko'rilgan 10 ta tarjima kino:</b>\n\n";
+        $buttons = [];
+        $i = 1;
+        while ($row = $result->fetch_assoc()) {
+            $msg .= "<b>$i.</b> " . htmlspecialchars($row['title']) . " (👁 {$row['downloads']})\n";
+            $buttons[] = ['text' => (string)$i, 'callback_data' => "getMovie=" . $row['id']];
+            $i++;
+        }
+        $kb = json_encode(['inline_keyboard' => array_chunk($buttons, 5)]);
+        sms($cid, $msg, $kb);
+    } else {
+        sms($cid, "<b>Hozircha kinolar mavjud emas.</b>");
+    }
+    exit();
 }
 
-if($data == "boshqarish"){
-del();
-sms($cid2,"<b>Admin paneliga xush kelibsiz!</b>",$panel);
-step($cid2,"none");
-exit();
+// ==========================================
+// 🔍 KINO YUBORISH VA QIDIRISH
+// ==========================================
+
+// 1. Agar foydalanuvchi kino kodini yuborsa (faqat raqam)
+if (is_numeric($text) && ($step == "none" || empty($step))) {
+    joinchat($cid);
+    send_movie_by_code($cid, $text);
+    exit();
 }
 
-if($text == "✉ Xabar Yuborish" and admin($cid)==1){
-$result = mysqli_query($connect, "SELECT * FROM `send`");
-$row = mysqli_fetch_assoc($result);
-$status = $row['status'];
-$sends_count = $row['sends_count'];
-$statistics = $row['statistics'];
-$receive_count = $row['receive_count'];
-if(!$row){
-sms($cid,"<b>📬 Foydalanuvchilarga yuboriladigan xabarni kiriting:</b>",$aort);
-step($cid,"send");
-}else{
-if($status == "resume"){
-$kb = json_encode([
-'inline_keyboard'=>[
-[['text'=>"To'xtatish ⏸",'callback_data'=>"sendstatus=stopped"]],
-[['text'=>"🗑 O'chirish",'callback_data'=>"bekorqilish_send"]]
-]]);
-}elseif($status == "stopped"){
-$kb = json_encode([
-'inline_keyboard'=>[
-[['text'=>"Davom ettirish ▶️",'callback_data'=>"sendstatus=resume"]],
-[['text'=>"🗑 O'chirish",'callback_data'=>"bekorqilish_send"]]
-]]);
-}
-sms($cid,"<b>✅ Yuborildi:</b> <code>$sends_count/$statistics</code>
-<b>📥 Qabul qilindi:</b> <code>$receive_count</code>
-<b>🔰 Status</b>: <code>$status</code>",$kb);
-}
+// Callback orqali kinoni ochish
+if (strpos($data, "getMovie=") === 0) {
+    $movie_row_id = explode("=", $data)[1];
+    del($cid, $mid);
+    send_movie_by_id($cid, $movie_row_id);
+    exit();
 }
 
-if($data=="bekorqilish_send"){
-mysqli_query($connect,"DELETE FROM `send`");
-del();
-accl($qid,"Xabar yuborish bekor qilindi!",1);
-sms($cid2,"<b>Admin paneliga xush kelibsiz!</b>",$panel);
-step($cid2,"none");
-exit();
+if ($data == "close") {
+    del($cid, $mid);
+    exit();
 }
 
- 
-
- 
-
-if($step== "send"){
-$res = mysqli_query($connect,"SELECT * FROM `users` ORDER BY `users`.`users_id` DESC LIMIT 1;");
-$row = mysqli_fetch_assoc($res);
-$user_id = $row['user_id'];
-$time1 = date('H:i', strtotime('+1 minutes'));
-$time2 = date('H:i', strtotime('+2 minutes'));
-$tugma = json_encode($update->message->reply_markup);
-$reply_markup = base64_encode($tugma);
-$stat = $connect->query("SELECT * FROM users")->num_rows;
-$edit_mess_id = sms($cid,"<b>✅ Yuborildi:</b> <code>0/$stat</code>
-<b>📥 Qabul qilindi:</b> <code>0</code>
-<b>🔰 Status</b>: <code>resume</code>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"To'xtatish ⏸",'callback_data'=>"sendstatus=stopped"]],
-[['text'=>"🗑 O'chirish",'callback_data'=>"bekorqilish_send"]]
-]]))->result->message_id;
-mysqli_query($connect, "INSERT INTO `send` (`time1`,`time2`,`start_id`,`stop_id`,`admin_id`,`message_id`,`reply_markup`,`step`,`edit_mess_id`,`status`,`statistics`,`sends_count`,`receive_count`) VALUES ('$time1','$time2','0','$user_id','$cid','$mid','$reply_markup','send','$edit_mess_id','resume','$stat',0,0)");
-sms($cid,"<b>🔄️ Qabul qilindi, bir necha daqiqadan keyin yuborish boshlanadi!</b>",$panel);
-step($cid,"none");
-}
-
-if(mb_stripos($data,"sendstatus=")!==false){
-$up_stat = explode("=",$data)[1];
-$result = mysqli_query($connect, "SELECT * FROM `send`");
-$row = mysqli_fetch_assoc($result);
-if($row['status'] == $up_stat){
-accl($qid,"Xabar yuborish xolati $up_stat ga o'zgartirolmaysiz.",1);
-}else{
-if($up_stat == "resume"){
-$time1 = date("H:i",time()+60);
-$time2 = date("H:i",time()+120);
-mysqli_query($connect,"UPDATE `send` SET time1 = '$time1', `time2` = '$time2'");
-}
-if($up_stat == "resume"){
-$kb = json_encode([
-'inline_keyboard'=>[
-[['text'=>"To'xtatish ⏸",'callback_data'=>"sendstatus=stopped"]],
-[['text'=>"🗑 O'chirish",'callback_data'=>"bekorqilish_send"]]
-]]);
-}elseif($up_stat == "stopped"){
-$kb = json_encode([
-'inline_keyboard'=>[
-[['text'=>"Davom ettirish ▶️",'callback_data'=>"sendstatus=resume"]],
-[['text'=>"🗑 O'chirish",'callback_data'=>"bekorqilish_send"]]
-]]);
-}
-$edit_mess_id = edit($cid2,$mid2,"<b>✅ Yuborildi:</b> <code>".$row['sends_count']."/".$row['statistics']."</code>
-<b>📥 Qabul qilindi:</b> <code>".$row['receive_count']."</code>
-<b>🔰 Status</b>: <code>$up_stat</code>",$kb)->result->message_id;
-mysqli_query($connect,"UPDATE `send` SET edit_mess_id = '$edit_mess_id', `status` = '$up_stat'");
-}
-}
-
-if($text == "📢 Kanallar sozlamalari" and admin($cid)==1){
-sms($cid,"<b>$text bo'limi!
-⤵️ Kerakli menyuni tanlang:</b>",$channel_manager);
-step($cid,"none");
-}
-
-if($text == "➕ Kanal qo'shish" and admin($cid)==1){
-sms($cid,"<b>👉 Qo‘shmoqchi bo‘lgan kanal turini tanlang:</b>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"Ommaviy",'callback_data'=>"request-false"]],
-[['text'=>"So‘rov qabul qiluvchi",'callback_data'=>"request-true"]],
-[['text'=>"Ixtiyoriy havola",'callback_data'=>"socialnetwork"]]
-]]));
-}
-
-
- 
-
- 
-
-if($data == "socialnetwork"){
-del();
-sms($cid2,"<b>Havola uchun nom yuboring:</b>",$aort);
-step($cid2,"socialnetwork_step1");
-}
-
-if($step == "socialnetwork_step1" and admin($cid)==1){
-if(isset($text)){
-file_put_contents("step/trash_social.txt",$text);
-sms($cid,"<b>✅ $text qabul qilindi!</b>
-
-<i>ixtiyorit havolani kiriting:</i>",null);
-step($cid,"socialnetwork_step2");
-}else{
-sms($cid,"Faqat matnlardan foydalaning",null);
-}
-}
-
-if($step == "socialnetwork_step2" and admin($cid)==1){
-if(isset($text)){
-$nom = file_get_contents("step/trash_social.txt");
-if($nom !== false){
-$nom = base64_encode($nom);
-$sql = "INSERT INTO `kanallar` (`type`, `link`, `title`, `channelID`) VALUES ('social', '$text', '$nom', '')";
-if($connect->query($sql)){
-sms($cid,"<b>✅ Kanal muvoffaqiyatli qo‘shildi</b>",$panel);
-step($cid,"none");
-}else{
-sms($cid,"<b>⚠️ Kanal qo‘shishda xatolik!</b>\n\n<code>{$connect->error}</code>",$panel);
-step($cid,"none");
-}
-}else{
-sms($cid,"<b>Havola uchun nom yuboring:</b>",$aort);
-step($cid,"socialnetwork_step1");
-}
-}
-
-
- 
-
- 
-
-  
- 
-
- 
-}
-
-if(mb_stripos($data,"request-")!==false){
-$type = explode("-",$data)[1];
-file_put_contents("step/$cid2.type",$type);
-sms($cid2,"<b>Endi kanalizdan \"forward\" xabar yuboring:</b>",$aort);
-step($cid2,"qosh");
-}
-
-if($step == "qosh" and isset($message->forward_origin)){
-$kanal_id = $message->forward_origin->chat->id;
-$type = file_get_contents("step/$cid.type");
-if($type=="true"){
-$link = bot('createChatInviteLink',[
-'chat_id'=>$kanal_id,
-'creates_join_request'=>true
-])->result->invite_link;
-$sql = "INSERT INTO `kanallar` (`channelID`, `link`, `type`) VALUES ('$kanal_id', '$link', 'request')";
-}elseif($type=="false"){
-$link = "https://t.me/" . $message->forward_origin->chat->username;
-$sql = "INSERT INTO `kanallar` (`channelID`, `link`, `type`) VALUES ('$kanal_id', '$link', 'lock')";
-}
-if($connect->query($sql)){
-sms($cid,"<b>✅ Kanal muvoffaqiyatli qo‘shildi</b>",$panel);
-}else{
-sms($cid,"<b>⚠️ Kanal qo‘shishda xatolik!</b>\n\n<code>{$connect->error}</code>",$panel);
-}
-step($cid,"none");  
-@unlink("step/$cid.type");
-}
-
- 
-
- 
-
-if($text == "🗑️ Kanal o'chirish" and admin($cid)==1){
-$result = $connect->query("SELECT * FROM `kanallar`");
-if($result->num_rows > 0) {
-$button = [];
-while($row = $result->fetch_assoc()){
-$type = $row['type'];
-$channelID = $row['channelID'];
-if($type == "lock" or $type == "request"){
-$gettitle = bot('getchat',['chat_id'=>$channelID])->result->title;
-$button[]=['text'=>"🗑️ ".$gettitle,'callback_data'=>"delchan=".$channelID];
-}else{
-$gettitle = $row['title'];
-$button[]=['text'=>"🗑️ ".$gettitle,'callback_data'=>"delchan=".$channelID];
-}
-}
-$keyboard2=array_chunk($button,1);
-$keyboard2[]=[['text'=>"◀️ Orqaga",'callback_data'=>"setchannels"]];
-$keyboard=json_encode([
-'inline_keyboard'=>$keyboard2,
-]);
-sms($cid,"<b>Kerakli kanalni tanlang va u o‘chiriladi:</b>",$keyboard);
-}else{
-sms($cid,"<b>Hech qanday kanal ulanmagan!</b>",null);
-}
-}
-
-if(stripos($data,"delchan=")!==false){
-$ex=explode("=",$data)[1];
-$result = $connect->query("SELECT * FROM `kanallar` WHERE channelID = '$ex'");
-$row = $result->fetch_assoc();
-if($row['requestchannel']=="true"){
-$connect->query("DELETE FROM requests WHERE chat_id = '$ex'");
-}
-$connect->query("DELETE FROM kanallar WHERE channelID = '$ex'");
-bot('editMessageText',[
-'chat_id'=>$cid2,
-'message_id'=>$mid2,
-'text'=>"<b>✅ Kanal o'chirildi!</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"◀️ Orqaga",'callback_data'=>"kochir"]]
-]
-])
-]);
-}
-
- 
-
- 
-
-if($text == "*️⃣ Qo'shimcha kanallar" and admin($cid)==1){
-sms($cid,"<b>*️⃣ Qo'shimcha kanallar</b> - kerakli kanalni tanlang:",json_encode([
-'inline_keyboard'=>[
-[['text'=>"🍿 Kino yuklanadigan kanal",'callback_data'=>"movieChannel"]]
-]]));
-}
-
-if($data == "movieChannel"){
-del();
-sms($cid2,"<b>🔗 Kino yuboriladigan kanal havolasini kiriting:</b>
-
-<i>Na'muna: @she_about_pg</i>",$aort);
-step($cid2,"movieChannel");
-}
-
-if($step == "movieChannel" and admin($cid)==1){
-$check = bot('getChatMember',['chat_id'=>$text,'user_id'=>bot('getMe')->result->id])->result->status;
-if($check == "administrator"){
-mysqli_query($connect,"UPDATE `settings` SET `movieChannel`='$text'");
-sms($cid,"<b>🍿 Kino yuklanadigan kanal $text'ga o'zgartirildi!</b>",$panel);
-step($cid,"none");
-}else{
-sms($cid,"<b>Botni kanalga admin qilib keyin qayta urinib ko'ring.</b>",null);
-}
-}
-
- 
-
-
- 
-
-
- 
-
-
- 
-
-// <--------- @obito_us --------->
-
-if($text == "📊 Statistika"){
-if(admin($cid)==1){
-$res = mysqli_query($connect, "SELECT * FROM `users`");
-$stat = mysqli_num_rows($res);
-$passive = $connect->query("SELECT * FROM users WHERE holat = '❌'")->num_rows;
-$movie_count = $connect->query("SELECT * FROM movie_data")->num_rows;
-$loadtime = function_exists('sys_getloadavg') ? sys_getloadavg() : [0.05, 0.05, 0.05];
-$today_date = date('d.m.Y');
-$month_date = date('m.Y');
-$joined_today = $connect->query("SELECT * FROM `users` WHERE `vaqt` LIKE '%$today_date%';")->num_rows;
-$joinedThisMonth = $connect->query("SELECT * FROM `users` WHERE `vaqt` LIKE '%$month_date%';")->num_rows;
-$left_today = $connect->query("SELECT * FROM `left_users` WHERE `date` LIKE '%$today_date%';")->num_rows;
-$leftThisMonth = $connect->query("SELECT * FROM `left_users` WHERE `date` LIKE '%$month_date%';")->num_rows;
-sms($cid,"💡 <b>O'rtacha yuklanish:</b> <code>$loadtime[0]</code>
-
-• <b>Barcha odamlar:</b> $stat ta 
-• <b>Bugun qo'shilganlar:</b> $joined_today ta
-• <b>Shu oy qo'shilganlar:</b> $joinedThisMonth ta
-
-• <b>Tark etgan:</b> $passive ta
-• <b>Bugun tark etgan:</b> $left_today ta
-• <b>Shu oy tark etgan:</b> $leftThisMonth ta
-
-• <b>Yuklangan kinolar:</b> $movie_count ta
-
-<b>⏰ Soat:</b> ".date('H:i:s')." | <b>📆 Sana:</b> ".date('d.m.Y')."",json_encode([
-'inline_keyboard'=>[
-[['text'=>"🔄 Yangilash",'callback_data'=>"upstat"]]
-]]));
-exit();
-}
-}
-
-if($data == "upstat"){
-$res = mysqli_query($connect, "SELECT * FROM `users`");
-$stat = mysqli_num_rows($res);
-$passive = $connect->query("SELECT * FROM users WHERE holat = '❌'")->num_rows;
-$movie_count = $connect->query("SELECT * FROM movie_data")->num_rows;
-$loadtime = function_exists('sys_getloadavg') ? sys_getloadavg() : [0.05, 0.05, 0.05];
-edit($cid2,$mid2,"💡 <b>O'rtacha yuklanish:</b> <code>$loadtime[0]</code>
-
-• <b>Barcha odamlar:</b> $stat ta 
-• <b>Tark etgan:</b> $passive ta
-• <b>Yuklangan kinolar:</b> $movie_count ta
-
-⏰ Soat: ".date('H:i:s')." | 📆 Sana: ".date('d.m.Y')."",json_encode([
-'inline_keyboard'=>[
-[['text'=>"🔄 Yangilash",'callback_data'=>"upstat"]]
-]]));
-}
-
-//<---- @Obito_us ---->//
-
-if($text == "👨🏻‍⚖️ Adminlar sozlamalari"){
-if(admin($cid)==1){
-sms($cid,"<b>👨🏻‍⚖️ Adminlar sozlamalari bo'limi!
-⤵️ Kerakli menyuni tanlang:</b>",$admin_manager);
-}
-}
-
-if($data == "admins"){
-if(admin($cid2)==1){
-del();
-sms($cid2,"<b>👨🏻‍⚖️ Adminlar sozlamalari bo'limi!
-⤵️ Kerakli menyuni tanlang:</b>",$admin_manager);
-}
-}
-
-
- 
-
-
- 
-
-
- 
-
-if($text == "📋 Administrator ro'yxati" and admin($cid)==1){
-$res = mysqli_query($connect,"SELECT * FROM admins");
-if($res->num_rows > 0){
-while($a = mysqli_fetch_assoc($res)){
-$user = $a['user_id'];
-$get=bot('getchat',['chat_id'=>$user])->result->first_name;
-$name=strip_tags($get);
-$key[]=['text'=>"$name",'url'=>"tg://user?id=$user"];
-}
-$keyboard2=array_chunk($key,1);
-$kb=json_encode([
-'inline_keyboard'=>$keyboard2,
-]);
-sms($cid,"<b>👉 Barcha adminlar ro'yxati:</b>",$kb);
-}else{
-sms($cid,"<b>Administratorlar mavjud emas</b>",null);
-}
-}
-
-if($text == "➕ Administrator qo'shish"){
-if(in_array($cid,$owners)){
-sms($cid,"<b>Kerakli foydalanuvchi ID raqamini yuboring:</b>",$aort);
-step($cid,"add-admin");
-}else{
-sms($cid,"<b>Ushbu bo'limdan foydalanish siz uchun taqiqlangan!</b>",null);
-}
-}
-if($step == "add-admin" and in_array($cid,$owners)){
-$result = mysqli_query($connect,"SELECT * FROM users WHERE user_id = '$text'");
-$row = mysqli_fetch_assoc($result);
-if(!$row){
-sms($cid,"<b>Ushbu foydalanuvchi botdan foydalanmaydi!</b>
-
-Boshqa ID raqamni kiriting:",null);
-}else{
-    $check_adm = mysqli_query($connect,"SELECT * FROM admins WHERE user_id = '$text'");
-    if(mysqli_num_rows($check_adm) == 0){
-        $connect->query("INSERT INTO admins (user_id) VALUES ('$text')");
-        sms($cid,"<code>$text</code> <b>adminlar ro'yxatiga qo'shildi!</b>",$admin_manager);
-        step($cid,"none");
-    }else{
-        sms($cid,"<b>Ushbu foydalanuvchi adminlar ro'yxatida mavjud!</b>
-
-Boshqa ID raqamni kiriting:",null);
+// Kino yuborish funksiyasi (kod orqali)
+function send_movie_by_code($chat_id, $code) {
+    global $connect, $bot;
+    $res = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$code'");
+    if ($res && $res->num_rows > 0) {
+        if ($res->num_rows > 1) {
+            $msg = "🔍 <b>Kod bo'yicha topilgan filmlar:</b>\n\n";
+            $buttons = [];
+            $i = 1;
+            while ($row = $res->fetch_assoc()) {
+                $msg .= "<b>$i.</b> " . htmlspecialchars($row['title']) . "\n";
+                $buttons[] = ['text' => (string)$i, 'callback_data' => "getMovie=" . $row['id']];
+                $i++;
+            }
+            $kb = json_encode(['inline_keyboard' => array_chunk($buttons, 5)]);
+            sms($chat_id, $msg, $kb);
+        } else {
+            $row = $res->fetch_assoc();
+            send_movie_row($chat_id, $row);
+        }
+    } else {
+        sms($chat_id, "<b>❌ Bunday kodli tarjima kino topilmadi!</b>\n\n<i>Kodni to'g'ri kiritganingizga ishonch hosil qiling.</i>");
     }
 }
-}
-
- 
-
-
- 
-
- 
-
-if($text == "🗑️ Administrator o‘chirish"){
-if(in_array($cid,$owners)){
-$result = $connect->query("SELECT * FROM admins");
-if($result->num_rows > 0){
-$i = 1;
-$response = "";
-while($row = $result->fetch_assoc()){
-$get = bot('getchat',['chat_id'=>$row['user_id']])->result->first_name;
-$response .= "<b>$i)</b> <a href='tg://user?id=".$row['user_id']."'>$get</a>\n";
-$uz[]=['text'=>$i,'callback_data'=>"remove-admin=".$row['user_id']];
-$i++;
-}
-$keyboard2=array_chunk($uz,3);
-$kb=json_encode(['inline_keyboard'=>$keyboard2]);
-sms($cid,"<b>👉 O'chirmoqchi bo'lgan administratorni tanlang:</b>\n\n$response",$kb);
-}else{
-sms($cid,"<b>Administratorlar mavjud emas</b>",null);
-}
-}else{
-sms($cid,"<b>Ushbu bo'limdan foydalanish siz uchun taqiqlangan!</b>",null);
-}
-}
-
-if(mb_stripos($data,"remove-admin=")!==false and in_array($cid2,$owners)){
-$user_od = explode("=",$data)[1];
-$result = mysqli_query($connect,"SELECT * FROM admins WHERE user_id = $user_od");
-$row = mysqli_fetch_assoc($result);
-if($row){
-$connect->query("DELETE FROM admins WHERE user_id = $user_od");
-del();
-sms($cid2,"<code>$user_od</code> <b>adminlar ro'yxatidan olib tashlandi!</b>",$admin_manager);
-}else{
-accl($qid,"Ushbu foydanuvchi administratorlar ro'yxatida mavjud emas!",1);
-}
-}
-
- 
-
-
- 
-
-
- 
-
- 
-
- 
-
- 
-
-//<---- @Obito_us ---->//
-
-if($text == "🤖 Bot holati" and admin($cid)==1){
-if($holat == "✅")$xolat = "O'chirish";
-if($holat == "❌")$xolat = "Yoqish";
-sms($cid,"<b>*️⃣ Hozirgi holat:</b> $holat",json_encode([
-'inline_keyboard'=>[
-[['text'=>$xolat,'callback_data'=>"bot"]]
-]]));
-}
-
-if($data == "xolat"){
-if($holat == "✅")$xolat = "O'chirish";
-if($holat == "❌")$xolat = "Yoqish";
-del();
-sms($cid,"<b>️*️⃣ Hozirgi holat:</b> $holat",json_encode([
-'inline_keyboard'=>[
-[['text'=>$xolat,'callback_data'=>"bot"]]
-]]));
-}
-
-if($data == "bot"){
-if($holat == "✅"){
-$connect->query("UPDATE settings SET `status` = '❌'");
-$px="❌";
-$xolat = "Yoqish";
-}else{
-$connect->query("UPDATE settings SET `status` = '✅'");
-$px="✅";
-$xolat = "O'chirish";
-}
-edit($cid2,$mid2,"<b>️*️⃣ Hozirgi holat:</b> $px",json_encode([
-'inline_keyboard'=>[
-[['text'=>$xolat,'callback_data'=>"bot"]]
-]]));
-}
-
-// >>> @obito_us <<<
-
-if($text == "📺 Kino sozlamalari" and admin($cid)==1){
-sms($cid,"<b>📺 Kino sozlamalari bo'limi!
-⤵️ Kerakli menyuni tanlang:</b>",$movie_manager);
-step($cid,"none");
-}
-
-if($text == "📥 Kino yuklash" and admin($cid)==1){
-sms($cid,"<b>🍿 Kino nomini kiriting:</b>",$aort);
-step($cid,"kino_nomi");
-}
-
-if($step == "kino_nomi"){
-if(isset($text)){
-sms($cid,"<b>✅ $text qabul qilindi!</b>
-
-<i>Ushbu kinoni ko'rish uchun obuna talab etilsinmi?</i>",json_encode([
-'resize_keyboard'=>true,
-'keyboard'=>[
-[['text'=>"Ha"],['text'=>"Yo'q"]],
-[['text'=>"🗄 Boshqarish"]]
-]]));
-file_put_contents("step/test1.txt",$text);
-step($cid,"movie_stepping");
-}
-}
-
-if($step == "movie_stepping"){
-if(isset($text)){
-sms($cid,"<b>✅ $text qabul qilindi!</b>
-
-<i>Kinoni shu yerga yuboring</i>",$aort);
-file_put_contents("step/test2.txt",$text);
-step($cid,"movie");
-}
-}
-
-if(file_exists('step/counter.txt') == FALSE){
-file_put_contents('step/counter.txt', "0");
-}
-
- 
-
-
- 
-
- 
-
- 
-
-if($step=="movie" and isset($message->video)){
-$video = $message->video;
-$file_id = $message->video->file_id;
-$type_movie = file_get_contents("step/test2.txt") == "Ha" ? 'premium' : 'usual';
-$title = file_get_contents("step/test1.txt");
-$title = str_replace(["‘","’","´","`"],["'","'","'","'"],$title);
-$title = $connect->real_escape_string($title);
-$caption = base64_encode($message->caption);
-$kino_ids = file_get_contents('step/counter.txt') + 1;
-file_put_contents('step/counter.txt',$kino_ids);
-$sql = "INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, `type`) VALUES ('$title', '$caption', '$file_id', '0', '$kino_ids','$type_movie');";
-if($connect->query($sql)==true){
-$s = $connect->insert_id;
-sms($cid,"✅ <b>Kino kanal va botga joylandi!</b>
-
-<b>🆔 Film IDsi:</b> <code>$kino_ids</code>",$movie_manager);
-sms($cid,"<b>🔗 Ushbu kinoni kanalga tashlamoqchimisiz?</b>
-
-<i>Agar, «✅ Yuborish» tugmasini bossangiz $kanalcha'ga yuboradi.</i>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"✅ Yuborish",'callback_data'=>"sms_{$kino_ids}"]]
-]]));
-}else{
-sms($cid,"⚠️ <b>Xatolik!</b>
-
-<code>$connect->error</code>",$aort);
-}
-step($cid,"none");
-@unlink("step/test1.txt");
-}
-
-if(mb_stripos($data,"sms_")!==false){
-$s = str_ireplace('sms_','',$data);
-del();
-sms($cid2,"<b>Kanalga yubormoqchi bo'lgan postingizni yuboring</b>",$aort);
-step($cid2,"sms_{$s}");
-}
-
-if(mb_stripos($step,"sms_")!==false){
-$s = str_ireplace('sms_','',$step);
-$res = bot('copyMessage',[
-'chat_id'=>$kanalcha,
-'from_chat_id'=>$cid,
-'message_id'=>$message->message_id,
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"📥 Yuklab olish",'url'=>"https://t.me/$bot?start=$s"]]
-]
-])
-]);
-sms($cid,"<b>✅ $kanalcha kanaliga post yuborildi!</b>",$movie_manager);
-// sms(6252419804,json_encode($res,256|128|64),null);
-step($cid,"none");
-}
-
-if($text == "🗑️ Kino o‘chirish" and admin($cid)==1){
-sms($cid,"<b>Kino kodini kiriting:</b>",$aort);
-step($cid,"deleteMov");
-}
-if($step=="deleteMov"){
-$sql="DELETE FROM movie_data WHERE kino_ids = '$text'";
-if($connect->query($sql)==true){
-sms($cid,"<b>Kino o'chirib tashlandi.</b>",$channel_manager);
-}else{
-sms($cid,"<b>Kino o'chirib tashlashda xatolik!</b>\n\n<code>{$connect->error}</code>",$aort);
-}
-step($cid,"none");
-}
-
-if($text == "➕ Kino qo'shish" and admin($cid)==1){
-sms($cid,"<b>➡️ Kino qo'shish uchun kino kodini kiriting:</b>",$aort);
-step($cid,'movie_download');
-}
-
-if($step == 'movie_download' and admin($cid)==1){
-if(is_numeric($text)==1){
-file_put_contents("step/movie_id.txt",$text);
-sms($cid,"<b>🍿 Kino nomini kiriting:</b>",$aort);
-step($cid,"movieDownload_step1");
-}else{
-sms($cid,"<b>🔕 Faqat raqamlardan foydalish ruxsat etilgan!</b>",null);
-}
-}
-
- 
-
- 
-
- 
-
-if($step == "movieDownload_step1" and admin($cid)==1){
-if(isset($text)){
-sms($cid,"<b>✅ $text qabul qilindi!</b>
-
-<i>Kinoni shu yerga yuboring</i>",$aort);
-file_put_contents("step/test1.txt",$text);
-step($cid,"movieDownload_step2");
-}
-}
-
-if($step == "movieDownload_step2"){
-$video = $message->video;
-$file_id = $message->video->file_id;
-$title = file_get_contents("step/test1.txt");
-$title = str_replace(["‘","’","´","`"],["'","'","'","'"],$title);
-$title = $connect->real_escape_string($title);
-$kino_ids = file_get_contents("step/movie_id.txt");
-$caption = base64_encode($message->caption);
-file_put_contents('step/counter.txt',$kino_ids);
-$sql = "INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids) VALUES ('$title', '$caption', '$file_id', '0', '$kino_ids');";
-if($connect->query($sql)==true){
-$s = $connect->insert_id;
-sms($cid,"✅ <b>Kino yuklandi!</b>
-
-<i>Kinoni $kino_ids kodi orqali ko'rishingiz mumkin.</i>",$movie_manager);
-}else{
-sms($cid,"⚠️ <b>Xatolik!</b>
-
-<code>$connect->error</code>",$aort);
-}
-@unlink("step/test1.txt");
-@unlink("step/movie_id.txt");
-step($cid,"none");
-exit;
-}
-
-
-       
-
-
- 
-if($text == "📝 Kino tahrirlash" and admin($cid)==1){
-sms($cid,"<b>➡️ Tahrirlamoqchi bo'lgan filmingizni kodini kiriting:</b>",$aort);
-step($cid,"movieEdit");
-}
-
-if(($step == "movieEdit" or mb_stripos($data,"movieEdit=")!==false) and admin("$cid$cid2")==1){
-if(isset($data)) $text = explode("=",$data)[1];
-if(is_numeric($text)==1){
-$result = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$text'");
-if($result->num_rows > 1){
-$txts = "";
-$i = 1;
-while($a = $result->fetch_assoc()){
-$txts .= "<b>$i.</b> ".$a['title']."\n";
-$uz[] = ['text'=>$i,'callback_data'=>"editMovie=".$a['id']];
-$i++;
-}
-$keyboard2=array_chunk($uz,5);
-$kb = json_encode(['inline_keyboard'=>$keyboard2]);
-if(isset($data)){
-edit($cid2,$mid2,"<b>Kerakli filmni tanlang(x{$result->num_rows}):</b>\n\n$txts",$kb);
-}else{
-sms($cid,"<b>Kerakli filmni tanlang(x{$result->num_rows}):</b>\n\n$txts",$kb);
-}
-}else{
-$a = $result->fetch_assoc();
-if(isset($data)){
-edit($cid2,$mid2,"<b>HOZIRGI HOLATI:</b>
-
-<i>1. Nom: ".$a['title']."</i>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"📝 Nom",'callback_data'=>"editMovieById=".$a['id']."=title"]]
-]]));
-}else{
-sms($cid,"<b>HOZIRGI HOLATI:</b>
-
-<i>1. Nom: ".$a['title']."</i>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"📝 Nom",'callback_data'=>"editMovieById=".$a['id']."=title"]]
-]]));
-}
-}
-}
-}
-
- 
-
- 
-
- 
-
- 
-
-if(mb_stripos($data,"editMovie=")!==false){
-$text = explode("=",$data)[1];
-$result = $connect->query("SELECT * FROM movie_data WHERE id = '$text'");
-if($result->num_rows > 0){
-$a = $result->fetch_assoc();
-edit($cid2,$mid2,"<b>HOZIRGI HOLATI:</b>
-
-<i>1. Nom: ".$a['title']."</i>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"📝 Nom",'callback_data'=>"editMovieById=".$a['id']."=title"]],
-[['text'=>"➡️ Orqaga",'callback_data'=>"movieEdit=".$a['kino_ids']]]
-]]));
-}else{
-accl($qid,"Texnik xatolik!",1);
-}
-}
-
-if(mb_stripos($data,"editMovieById=")!==false){
-step($cid2,$data);
-del();
-sms($cid2,"<b>Yangi qiymatini kiriting:</b>",$aort);
-}
-
-if(mb_stripos($step,"editMovieById=")!==false){
-$exp = explode("=",$step);
-$kino_id = $exp[1];
-$tip = $exp[2];
-if($tip == "title"){
-$text = str_replace(["‘","’","´","`"],["'","'","'","'"],$text);
-$text = $connect->real_escape_string($text);
-$connect->query("UPDATE movie_data SET title = '$text' WHERE id = '$kino_id'");
-sms($cid,"<b>Qiymat qabul qilindi va saqlandi!</b>",$panel);
-step($cid,"none");
-}else{
-sms($cid,"<b>Texnik xatolik yuz berdi!</b>
-
-Qayta urinib ko'ring",$aort);
-step($cid,"none");
-}
-}
-
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
-// <--------- @obito_us --------->
-
-if($text == "/premium" or $text == "/vip"){
-$result = mysqli_query($connect,"SELECT * FROM obunalar WHERE user_id = '$cid'");
-$row = mysqli_fetch_assoc($result);
-if($row){
-bot('sendPhoto',[
-'chat_id'=>$cid,
-'photo'=>'https://t.me/mylogschannel/479',
-'caption'=>"<b>SIZ PREMIUM OBUNAGA OBUNA BO'LGANSIZ!</b>
-
-<blockquote>⏳ Amal qilish muddati: ".$row['subcribe_enddate']." gacha</blockquote>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"➡️ Obuna uzaytirish",'callback_data'=>"renewal_obuna"]]
-]
-])
-]);
-}else{
-bot('sendPhoto',[
-'chat_id'=>$cid,
-'photo'=>'https://t.me/mylogschannel/479',
-'caption'=>"<b>❌ Siz PREMIUM obuna sotib olmagansiz!</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"🛒 Xarid qilish",'callback_data'=>"subcribe1"]]
-]
-])
-]);
-}
-}
-
-if($data == "subcribe1"){
-$sub_price_3 = $sub_price * 3;
-$sub_price_6 = $sub_price * 6;
-$sub_price_12 = $sub_price * 12;
-bot('editMessageCaption',[
-'chat_id'=>$cid2,
-'message_id'=>$mid2,
-'caption'=>"<b>💎 PREMIUM ta'riflardan birini tanlang:</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"1 oylik obuna - $sub_price so‘m",'callback_data'=>"toSubcribe_1"]],
-[['text'=>"3 oylik obuna - $sub_price_3 so‘m",'callback_data'=>"toSubcribe_3"]],
-[['text'=>"6 oylik obuna - $sub_price_6 so‘m",'callback_data'=>"toSubcribe_6"]],
-[['text'=>"1 yillik obuna - $sub_price_12 so‘m",'callback_data'=>"toSubcribe_12"]],
-]
-])
-]);
-}
-
-if(mb_stripos($data,"toSubcribe_")!==false){
-$obuna = str_ireplace('toSubcribe_','',$data);
-$sub_cost = $sub_price * $obuna;
-del();
-sms($cid2,"<b>Karta raqamlari
-
-Chekda aniq sana va vaqt, summa hamda o'tkazilgan karta raqam bo'lishi kerak!
-Ps: bittadan ortiq rasm jo'natishga to'g'ri kelsa, donalab yuboring! Guruhlab yuborsangiz bot javob qaytarmaydi!</b>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"✅ To'lov qildim",'callback_data'=>"iPaid_$sub_cost"]]
-]]));
-}
-
-
- 
-
- 
-
- 
-
- 
-
-
-if($data == "renewal_obuna"){
-$result = mysqli_query($connect,"SELECT * FROM obunalar WHERE user_id = '$cid2'");
-$row = mysqli_fetch_assoc($result);
-del();
-if($row){
-$sub_price_3 = $sub_price * 3;
-$sub_price_6 = $sub_price * 6;
-$sub_price_12 = $sub_price * 12;
-sms($cid2,"<b>⏳ PREMIUM obunani qanchaga uzaytirmoqchisiz?</b>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"1 oylik obuna - $sub_price so‘m",'callback_data'=>"toSubcribe_1"]],
-[['text'=>"3 oylik obuna - $sub_price_3 so‘m",'callback_data'=>"toSubcribe_3"]],
-[['text'=>"6 oylik obuna - $sub_price_6 so‘m",'callback_data'=>"toSubcribe_6"]],
-[['text'=>"1 yillik obuna - $sub_price_12 so‘m",'callback_data'=>"toSubcribe_12"]],
-]]));
-}else{
-sms($cid2,"<b>❌ Siz PREMIUM obuna sotib olmagansiz!</b>",json_encode([
-'inline_keyboard'=>[
-[['text'=>"🛒 Xarid qilish",'callback_data'=>"subcribe1"]]
-]]));
-}
-}
-
-if(mb_stripos($data,"iPaid_")!==false){
-del();
-sms($cid2,"<b>🧾 To'lov haqidagi chekni yuboring:</b>",$back);
-step($cid2,$data);
-}
-
-if(mb_stripos($step,"iPaid_")!==false){
-$cost = explode("_",$step)[1];
-$photo = $message->photo;
-$file = $photo[count($photo)-1]->file_id;
-sms($cid,"<b>⏱ So'rovingiz adminga yuborildi!</b>",json_encode([
-'remove_keyboard'=>true
-]));
-bot('copyMessage',[
-'chat_id'=>$TokhtasinovUz,
-'from_chat_id'=>$cid,
-'message_id'=>$mid,
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"✅ Tasdiqlash",'callback_data'=>"on=$cid=$cost"]],
-[['text'=>"❌ Bekor qilish",'callback_data'=>"off=$cid"]],
-]])
-]);
-step($cid,"none");
-}
-
-if(mb_stripos($data,"on=")!==false and admin($cid2)==1){
-$odam=explode("=",$data)[1];
-$narx=explode("=",$data)[2];
-del();
-$month_date=$narx/$sub_price;
-$today=date('d.m.Y H:i');
-$result = mysqli_query($connect,"SELECT * FROM obunalar WHERE user_id = $odam");
-$row = mysqli_fetch_assoc($result);
-if($row){
-$subcribe_enddate = strtotime($row['subcribe_enddate']) + ((60 * 60) * 24) * ($month_date * 30);
-$subcribe_enddate = date('d.m.Y H:i', $subcribe_enddate);
-mysqli_query($connect,"UPDATE obunalar SET subcribe_enddate = '$subcribe_enddate' WHERE user_id = $odam");
-sms($odam,"<b>✅ So'rovingiz qabul qilindi!</b>
-
-<i>Siz sotib olgan PREMIUM obunangiz uzaytirildi.</i>",null);
-sms($cid2,"<b>✅ Foydalanuvchi PREMIUM obunasi uzaytirildi!</b>",null);
-}else{
-$subcribe_end=date('d.m.Y H:i',strtotime("+$month_date months"));
-$connect->query("INSERT INTO obunalar (user_id, subcribe_date, subcribe_enddate) VALUES ('$odam','$today','$subcribe_end')");
-sms($odam,"<b>✅ So'rovingiz qabul qilindi!</b>
-
-<i>Endilikda siz PREMIUM obuna sotib olgansiz.</i>",null);
-sms($cid2,"<b>✅ Foydalanuvchiga $month_date oy uchun PREMIUM obuna topshirildi!</b>",null);
-}
-}
-
-
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
-if(mb_stripos($data,"off=")!==false and admin($cid2)==1){
-$odam=explode("=",$data)[1];
-del();
-sms($odam,"<b>⚠️ So'rovingiz qabul qilinmadi!</b>",null);
-sms($cid2,"<b>⚠️ Foydalanuvchi cheki o'chirildi!</b>",null);
-}
-
-if($data=="checkSub"){
-del();
-if(joinchat($cid2) == true){
-sms($cid2,"<b>👋 Assalomu alaykum $callname  botimizga xush kelibsiz.</b>
-
-<i>✍🏻 Kino kodini yuboring.</i>",$menu);
-}
-}
-
-if($text == "/top" or $data == "topRating"){
-if(isset($data)) del();
-$result = mysqli_query($connect,"SELECT * FROM `movie_data` ORDER BY `downloads` DESC LIMIT 10;");
-$response = "";
-$i = 1;
-while($row = mysqli_fetch_assoc($result)){
-$response .= "<b>$i)</b> ".$row['title']."\n";
-$uz[] = ['text'=>$i,'callback_data'=>"topDown=".$row['id']];
-$i++;
-}
-$keyboard2=array_chunk($uz,5);
-$kb=json_encode(['inline_keyboard'=>$keyboard2]);
-if(isset($data)){
-sms($cid2,"<b>Eng ko'p ko'rilgan 10 filmlar:</b>\n\n$response",$kb);
-}else{
-sms($cid,"<b>Eng ko'p ko'rilgan 10 filmlar:</b>\n\n$response",$kb);
-}
-}
-
-if(mb_stripos($data,"topDown=")!==false){
-$kino_id=explode("=",$data)[1];
-del();
-$obunalar = $connect->query("SELECT * FROM obunalar WHERE user_id = '$cid2'");
-$obuna = $obunalar->fetch_assoc();
-$result = $connect->query("SELECT * FROM movie_data WHERE id = '$kino_id'");
-$row = $result->fetch_assoc();
-$title = $row['title'];
-$movie_id = $row['movie_id'];
-$downloads = $row['downloads'] + 1;
-$kino_ids = $row['kino_ids'];
-$caption = $row['caption'] == "" ? "\n\n<b>🗂 Yuklash:</b> $downloads" : "\n\n".base64_decode($row['caption'])."\n<b>🗂 Yuklash:</b> $downloads";
-$connect->query("UPDATE movie_data SET downloads = '$downloads' WHERE id = '$kino_id'");
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-bot('sendVideo',[
-'chat_id'=>$cid2,
-'video'=>$movie_id,
-'caption'=>"<b>🎬{$title}{$caption}
-
-<b>🤖 Bizning bot:</b> @$bot</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"♻️ Do'stlarga ulashish",'url'=>"https://t.me/share/url?url=https://t.me/$bot?start=$kino_ids"]],
-[['text'=>"❌",'callback_data'=>"close"]]
-]
-])
-]);
-}else{
-sms($cid2,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-}
-}
-
-if($data == "close") del();
-
-
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
-if(is_numeric($text)==true and (empty($step) or $step == "none") and joinchat($cid)==1){
-$result = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$text'");
-$row = $result->fetch_assoc();
-$obunalar = $connect->query("SELECT * FROM obunalar WHERE user_id = '$cid'");
-$obuna = $obunalar->fetch_assoc();
-if(isset($row)){
-$result = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$text'");
-if($result->num_rows > 1){
-$texts = "🔍 Natijalar {$result->num_rows}\n\n";
-$counter = 1;
-while($rows = $result->fetch_assoc()){
-$title = $rows['title'];
-$texts .= "<b>$counter.</b> {$title}\n";
-$uz[] = ['text'=>$counter,'callback_data'=>"downloadMovie=".$rows['id']];
-$counter++;
-}
-$keyboard2 = array_chunk($uz,5);
-$keyboard2[] = [['text'=>"🏠 Menu",'callback_data'=>"checkSub"]];
-$kb = json_encode(['inline_keyboard'=>$keyboard2]);
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-sms($cid,$texts,$kb);
-exit;
-}else{
-sms($cid,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-exit;
-}
-}else{
-$row = $result->fetch_assoc();
-$title = $row['title'];
-$downloads = $row['downloads'] + 1;
-$caption = $row['caption'] == "" ? "\n\n<b>🗂 Yuklash:</b> $downloads" : "\n\n".base64_decode($row['caption'])."\n<b>🗂 Yuklash:</b> $downloads";
-$movie_id = $row['movie_id'];
-$connect->query("UPDATE movie_data SET downloads = '$downloads' WHERE kino_ids = '$text'");
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-bot('sendVideo',[
-'chat_id'=>$cid,
-'video'=>$movie_id,
-'caption'=>"<b>🎬{$title}{$caption}
-
-<b>🤖 Bizning bot:</b> @$bot</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"♻️ Do'stlarga ulashish",'url'=>"https://t.me/share/url?url=https://t.me/$bot?start=$text"]],
-[['text'=>"❌",'callback_data'=>"close"]]
-]
-])
-]);
-exit;
-}else{
-sms($cid,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-exit;
-}
-}
-}else{
-sms($cid,"<b>❌ Bunday kodli kino mavjud emas yoki olib tashlangan!</b>",null);
-exit;
-}
-}
-
-
-if(mb_stripos($data,"searchMovieByCode=")!==false){
-$text = explode("=",$data)[1];
-del();
-if(joinchat($cid2)==1){
-$result = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$text'");
-$row = $result->fetch_assoc();
-$obunalar = $connect->query("SELECT * FROM obunalar WHERE user_id = '$cid2'");
-$obuna = $obunalar->fetch_assoc();
-if(isset($row)){
-$result = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$text'");
-if($result->num_rows > 1){
-$texts = "🔍 Natijalar {$result->num_rows}\n\n";
-$counter = 1;
-while($rows = $result->fetch_assoc()){
-$title = $rows['title'];
-$texts .= "<b>$counter.</b> {$title}\n";
-$uz[] = ['text'=>$counter,'callback_data'=>"downloadMovie=".$rows['id']];
-$counter++;
-}
-$keyboard2 = array_chunk($uz,5);
-$keyboard2[] = [['text'=>"🏠 Menu",'callback_data'=>"checkSub"]];
-$kb = json_encode(['inline_keyboard'=>$keyboard2]);
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-sms($cid2,$texts,$kb);
-}else{
-sms($cid2,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-}
-}else{
-$row = $result->fetch_assoc();
-$title = $row['title'];
-$downloads = $row['downloads'] + 1;
-$caption = $row['caption'] == "" ? "\n\n<b>🗂 Yuklash:</b> $downloads" : "\n\n".base64_decode($row['caption'])."\n<b>🗂 Yuklash:</b> $downloads";
-$movie_id = $row['movie_id'];
-$connect->query("UPDATE movie_data SET downloads = '$downloads' WHERE kino_ids = '$text'");
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-bot('sendVideo',[
-'chat_id'=>$cid2,
-'video'=>$movie_id,
-'caption'=>"<b>🎬{$title}{$caption}
-
-<b>🤖 Bizning bot:</b> @$bot</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"♻️ Do'stlarga ulashish",'url'=>"https://t.me/share/url?url=https://t.me/$bot?start=$text"]],
-[['text'=>"❌",'callback_data'=>"close"]]
-]
-])
-]);
-}else{
-sms($cid2,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-}
-}
-}else{
-sms($cid2,"<b>❌ Bunday kodli kino mavjud emas yoki olib tashlangan!</b>",null);
-}
-}
-}
-
-
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
-if(mb_stripos($text,"/start ")!==false){
-$text = explode(" ",$text)[1];
-if(joinchat($cid)==1){
-$result = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$text'");
-$row = $result->fetch_assoc();
-$obunalar = $connect->query("SELECT * FROM obunalar WHERE user_id = '$cid2'");
-$obuna = $obunalar->fetch_assoc();
-if(isset($row)){
-$result = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$text'");
-if($result->num_rows > 1){
-$texts = "🔍 Natijalar {$result->num_rows}\n\n";
-$counter = 1;
-while($rows = $result->fetch_assoc()){
-$title = $rows['title'];
-$texts .= "<b>$counter.</b> {$title}\n";
-$uz[] = ['text'=>$counter,'callback_data'=>"downloadMovie=".$rows['id']];
-$counter++;
-}
-$keyboard2 = array_chunk($uz,5);
-$keyboard2[] = [['text'=>"🏠 Menu",'callback_data'=>"checkSub"]];
-$kb = json_encode(['inline_keyboard'=>$keyboard2]);
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-sms($cid,$texts,$kb);
-exit;
-}else{
-sms($cid,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-exit;
-}
-}else{
-$row = $result->fetch_assoc();
-$title = $row['title'];
-$downloads = $row['downloads'] + 1;
-$caption = $row['caption'] == "" ? "\n\n<b>🗂 Yuklash:</b> $downloads" : "\n\n".base64_decode($row['caption'])."\n<b>🗂 Yuklash:</b> $downloads";
-$movie_id = $row['movie_id'];
-$connect->query("UPDATE movie_data SET downloads = '$downloads' WHERE kino_ids = '$text'");
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-bot('sendVideo',[
-'chat_id'=>$cid,
-'video'=>$movie_id,
-'caption'=>"<b>🎬{$title}{$caption}
-
-<b>🤖 Bizning bot:</b> @$bot</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"♻️ Do'stlarga ulashish",'url'=>"https://t.me/share/url?url=https://t.me/$bot?start=$text"]],
-[['text'=>"❌",'callback_data'=>"close"]]
-]
-])
-]);
-exit;
-}else{
-sms($cid,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-exit;
-}
-}
-}else{
-sms($cid,"<b>❌ Bunday kodli kino mavjud emas yoki olib tashlangan!</b>",null);
-exit;
-}
-}
-}
-
-if(mb_stripos($data,"downloadMovie=")!==false){
-$kino_id=explode("=",$data)[1];
-del();
-$result = $connect->query("SELECT * FROM movie_data WHERE id = '$kino_id'");
-$row = $result->fetch_assoc();
-$obunalar = $connect->query("SELECT * FROM obunalar WHERE user_id = '$cid2'");
-$obuna = $obunalar->fetch_assoc();
-$title = $row['title'];
-$movie_id = $row['movie_id'];
-$downloads = $row['downloads'] + 1;
-$kino_ids = $row['kino_ids'];
-$caption = $row['caption'] == "" ? "<b>🗂 Yuklash:</b> $downloads\n" : "".base64_decode($row['caption'])."\n<b>🗂 Yuklash:</b> $downloads\n";
-$connect->query("UPDATE movie_data SET downloads = '$downloads' WHERE id = '$kino_id'");
-if($row['type']=="usual" or ($row['type']=="premium" and isset($obuna))){
-bot('sendVideo',[
-'chat_id'=>$cid2,
-'video'=>$movie_id,
-'caption'=>"<b>🎬{$title}{$caption}
-
-<b>🤖 Bizning bot:</b> @$bot</b>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"♻️ Do'stlarga ulashish",'url'=>"https://t.me/share/url?url=https://t.me/$bot?start=$kino_ids"]],
-[['text'=>"❌",'callback_data'=>"close"]]
-]
-])
-]);
-}else{
-sms($cid2,"<b>Ushbu filmni ko'rish uchun PREIUM obuna sotib olishingiz zarur!</b>
-
-<i>PREMIUM obuna sotib olish uchun /premium buyrug'ini yuboring.</i>",null);
-}
-}
-
-
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
- 
-
-if(isset($text) and (empty($step) or $step == "none") and joinchat($cid)==1){
-if($text != "/panel" and $text != "◀️ Orqaga" and $text != "/start" and $text != "/top" and $text != "/vip" and $text != "/premium" and $text != "🤖 Bot holati" and $text != "📊 Statistika" and $text != "✉ Xabar Yuborish" and $text != "🗄 Boshqarish" and $text != "👨🏻‍⚖️ Adminlar sozlamalari" and $text !="➕ Administrator qo'shish" and $text != "🗑️ Administrator o‘chirish" and $text != "📋 Administrator ro'yxati" and $text != "📺 Kino sozlamalari" and $text != "📥 Kino yuklash" and $text != "🗑️ Kino o‘chirish" and $text != "➕ Kino qo'shish" and $text != "📝 Kino tahrirlash" and $text != "📢 Kanallar sozlamalari" and $text != "➕ Kanal qo'shish" and $text != "🗑️ Kanal o'chirish" and $text != "*️⃣ Qo'shimcha kanallar"){
-$text = str_replace(["‘","’","´","`"],["'","'","'","'"],$text);
-$text = $connect->real_escape_string($text);
-$stat = mysqli_num_rows(mysqli_query($connect,"SELECT * FROM `movie_data` WHERE title LIKE '%$text%'"));
-if($stat == 0){
-    sms($cid,"<b>😔 Hech narsa topilmadi
 
-Nomni boshqacharoq yozib koʻring yoki kino kodini yuboring.</b>",null);
-    exit;
-}else{
-    $result = mysqli_query($connect,"SELECT * FROM `movie_data` WHERE title LIKE '%$text%' LIMIT 0,10");
+// Kino yuborish funksiyasi (ID orqali)
+function send_movie_by_id($chat_id, $row_id) {
+    global $connect;
+    $res = $connect->query("SELECT * FROM movie_data WHERE id = '$row_id'");
+    if ($res && $res->num_rows > 0) {
+        $row = $res->fetch_assoc();
+        send_movie_row($chat_id, $row);
+    } else {
+        sms($chat_id, "<b>❌ Kino topilmadi yoki o'chirilgan!</b>");
+    }
+}
+
+// Kinoni jo'natishning asosiy qismi
+function send_movie_row($chat_id, $row) {
+    global $connect, $bot;
+    $id = $row['id'];
+    $title = htmlspecialchars($row['title']);
+    $file_id = $row['movie_id'];
+    $kino_code = $row['kino_ids'];
+    $downloads = (int)$row['downloads'] + 1;
+    
+    // Yuklanishlar sonini oshirish
+    $connect->query("UPDATE movie_data SET downloads = '$downloads' WHERE id = '$id'");
+    
+    $caption_text = !empty($row['caption']) ? base64_decode($row['caption']) : "";
+    $full_caption = "🎬 <b>{$title}</b>\n";
+    if ($caption_text) {
+        $full_caption .= "\n" . $caption_text . "\n";
+    }
+    $full_caption .= "\n<b>🆔 Film kodi:</b> <code>$kino_code</code>";
+    $full_caption .= "\n<b>👁 Yuklashlar soni:</b> $downloads";
+    $full_caption .= "\n\n<b>🤖 Bizning bot:</b> @$bot";
+
+    bot('sendVideo', [
+        'chat_id' => $chat_id,
+        'video' => $file_id,
+        'caption' => $full_caption,
+        'parse_mode' => 'HTML',
+        'reply_markup' => json_encode([
+            'inline_keyboard' => [
+                [['text' => "♻️ Do'stlarga ulashish", 'url' => "https://t.me/share/url?url=https://t.me/$bot?start=$kino_code"]],
+                [['text' => "❌ Yopish", 'callback_data' => "close"]]
+            ]
+        ])
+    ]);
+}
+
+// 2. Agar foydalanuvchi matn yozsa (Kino nomi bo'yicha qidirish)
+$admin_commands = [
+    "/panel", "🗄 Boshqarish", "◀️ Asosiy menyu", "◀️ Orqaga", "/start", "/top",
+    "📺 Kino sozlamalari", "📢 Kanallar sozlamalari", "📊 Statistika", "✉ Xabar Yuborish",
+    "👨🏻‍⚖️ Adminlar sozlamalari", "🤖 Bot holati", "📥 Kino yuklash", "➕ Kino qo'shish (Kod bilan)",
+    "📝 Kino tahrirlash", "🗑️ Kino o‘chirish", "➕ Kanal qo'shish", "🗑️ Kanal o'chirish",
+    "*️⃣ Asosiy kino kanali", "➕ Administrator qo'shish", "🗑️ Administrator o‘chirish", "📋 Administrator ro'yxati"
+];
+
+if (!empty($text) && ($step == "none" || empty($step)) && !in_array($text, $admin_commands)) {
+    joinchat($cid);
+    $search_query = $connect->real_escape_string(trim($text));
+    $count_res = $connect->query("SELECT COUNT(*) as total FROM movie_data WHERE title LIKE '%$search_query%'");
+    $total = $count_res->fetch_assoc()['total'] ?? 0;
+
+    if ($total == 0) {
+        sms($cid, "<b>😔 Hech narsa topilmadi.</b>\n\n<i>Nomni boshqacharoq yozib ko'ring yoki kino kodini yuboring.</i>");
+        exit();
+    }
+
+    $movies = $connect->query("SELECT * FROM movie_data WHERE title LIKE '%$search_query%' LIMIT 0, 10");
+    $msg = "🔍 <b>Qidiruv natijalari (1-" . min($total, 10) . " / $total dan):</b>\n\n";
+    $buttons = [];
     $i = 1;
-    $ttt = "";
-    $uz = [];
-    while($a = mysqli_fetch_assoc($result)){
-        $ttt .= "$i. <b>$a[title]</b>\n";
-        $uz[]=['text'=>$i,'callback_data'=>"downloadMovie=".$a['id']];
+    while ($m = $movies->fetch_assoc()) {
+        $msg .= "<b>$i.</b> " . htmlspecialchars($m['title']) . " (Kod: <code>{$m['kino_ids']}</code>)\n";
+        $buttons[] = ['text' => (string)$i, 'callback_data' => "getMovie=" . $m['id']];
         $i++;
     }
-    $keyboard2=array_chunk($uz,5);
-    $keyboard2[]=[['text'=>"⬅️",'callback_data'=>"pagenationMovie_{$text}_0_back"],['text'=>"❌",'callback_data'=>"close"],['text'=>"➡️",'callback_data'=>"pagenationMovie_{$text}_0_next"]];
-    $kb=json_encode(['inline_keyboard'=>$keyboard2]);
-    $stat2 = $stat < 10 ? $stat : 10;
-    sms($cid,"<b>Natijalar 1-$stat2 ($stat dan)</b>\n\n$ttt",$kb);
-    exit;
-}
-}
-}
 
-if(stripos($data,"pagenationMovie_")!==false){
-$exp = explode("_",$data);
-$text = $exp[1];
-$nid = $exp[2];
-$tp = $exp[3];
-if($tp=="next")$nn = $nid+10;
-if($tp=="back")$nn = $nid-10;
+    $keyboard_rows = array_chunk($buttons, 5);
+    $keyboard_rows[] = [
+        ['text' => "⬅️", 'callback_data' => "page_{$search_query}_0_back"],
+        ['text' => "❌", 'callback_data' => "close"],
+        ['text' => "➡️", 'callback_data' => "page_{$search_query}_0_next"]
+    ];
 
-$result = mysqli_query($connect,"SELECT * FROM `movie_data` WHERE title LIKE '%$text%' LIMIT $nn,10");
-$c = mysqli_num_rows($result);
-$i = 1;
-$ttt = "";
-while($a = mysqli_fetch_assoc($result)){
-$ttt .= "$i. <b>$a[title]</b>\n";
-$uz[]=['text'=>$i,'callback_data'=>"downloadMovie=".$a['id']];
-$i++;
-}
-$ara = array_chunk($uz,5);
-$ara[]=[['text'=>"⬅️",'callback_data'=>"pagenationMovie_{$text}_{$nn}_back"],['text'=>"❌",'callback_data'=>"close"],['text'=>"➡️",'callback_data'=>"pagenationMovie_{$text}_{$nn}_next"]];
-$json = json_encode(['inline_keyboard'=>$ara]);
-if($c == "0" or $nn < "0"){
-bot('answerCallbackQuery',[
-'callback_query_id'=>$qid,
-'text'=>"😔 Hech narsa topilmadi!",
-'show_alert'=>true
-]);
-exit;
-}else{
-$stat = mysqli_num_rows(mysqli_query($connect,"SELECT * FROM `movie_data` WHERE title LIKE '%$text%'"));
-$allstat = $nn+10;
-$stat2 = $stat < $allstat ? $stat : $allstat;
-edit($cid2,$mid2,"<b>Natijalar ".($nn+1)."-$stat2 $stat dan</b>\n\n$ttt",$json);
-}
+    sms($cid, $msg, json_encode(['inline_keyboard' => $keyboard_rows]));
+    exit();
 }
 
+// Qidiruv sahifalash (Pagination)
+if (strpos($data, "page_") === 0) {
+    $exp = explode("_", $data);
+    $q = $connect->real_escape_string($exp[1]);
+    $offset = (int)$exp[2];
+    $action = $exp[3];
 
-// <--------- @obito_us --------->
+    $new_offset = ($action == "next") ? $offset + 10 : max(0, $offset - 10);
+    $movies = $connect->query("SELECT * FROM movie_data WHERE title LIKE '%$q%' LIMIT $new_offset, 10");
 
-
-if($_GET['update']=="send"){
-$result = mysqli_query($connect, "SELECT * FROM `send`"); 
-$row = mysqli_fetch_assoc($result);
-$time = date('H:i');
-if($row['status']=="resume"){
-$row1 = $row['time1'];
-$row2 = $row['time2'];
-$start_id = $row['start_id'];
-$stop_id = $row['stop_id'];
-$admin_id = $row['admin_id'];
-$mied = $row['message_id'];
-$edit_mess_id = $row['edit_mess_id'];
-$sends_count = $row['sends_count'] ?? 0;
-$receive_count = $row['receive_count'] ?? 0;
-$statistics = $row['statistics'];
-$time1 = date('H:i', strtotime('+1 minutes'));
-$time2 = date('H:i', strtotime('+2 minutes'));
-$limit = 100;
-
-if($time == $row1 or $time == $row2){
-$sql = "SELECT * FROM `users` LIMIT $start_id,$limit";
-$res = mysqli_query($connect,$sql);
-while($a = mysqli_fetch_assoc($res)){
-$id = $a['user_id'];
-$receive_check = bot('forwardMessage',[
-'chat_id'=>$id,
-'from_chat_id'=>$admin_id,
-'message_id'=>$mied
-]);
-$sends_count++;
-if($receive_check->ok){
-$receive_count++;
-}
-if($id == $stop_id){
-bot('sendMessage',[
-'chat_id'=>$admin_id,
-'text'=>"<b>✅ ️Xabar barcha bot foydalanuvchilariga yuborildi!</b>",
-'parse_mode'=>'html'
-]);
-mysqli_query($connect, "DELETE FROM `send`");
-break;
-}
-}
-mysqli_query($connect, "UPDATE `send` SET `time1` = '$time1'");
-mysqli_query($connect, "UPDATE `send` SET `time2` = '$time2'");
-$get_id = $start_id + $limit;
-mysqli_query($connect, "UPDATE `send` SET `start_id` = '$get_id'");
-mysqli_query($connect, "UPDATE `send` SET `sends_count` = '$sends_count'");
-mysqli_query($connect, "UPDATE `send` SET `receive_count` = '$receive_count'");
-$edit = bot('editMessageText',[
-'chat_id'=>$admin_id,
-'message_id'=>$edit_mess_id,
-'text'=>"<b>✅ Yuborildi:</b> <code>$sends_count/$statistics</code>
-<b>📥 Qabul qilindi:</b> <code>$receive_count</code>
-<b>🔰 Status</b>: <code>resume</code>",
-'parse_mode'=>'html',
-'reply_markup'=>json_encode([
-'inline_keyboard'=>[
-[['text'=>"To'xtatish ⏸",'callback_data'=>"sendstatus=stopped"]],
-[['text'=>"🗑 O'chirish",'callback_data'=>"bekorqilish_send"]]
-]
-])
-]);
-if($edit->ok){
-$edit_mess_id = $edit->result->message_id;
-mysqli_query($connect, "UPDATE `send` SET `edit_mess_id` = '$edit_mess_id'");
-}
-}
-echo json_encode(["status"=>true,"cron"=>"Sending message"]);
-}
+    if ($movies && $movies->num_rows > 0) {
+        $count_res = $connect->query("SELECT COUNT(*) as total FROM movie_data WHERE title LIKE '%$q%'");
+        $total = $count_res->fetch_assoc()['total'] ?? 0;
+        
+        $msg = "🔍 <b>Qidiruv natijalari (" . ($new_offset + 1) . "-" . min($new_offset + 10, $total) . " / $total dan):</b>\n\n";
+        $buttons = [];
+        $i = 1;
+        while ($m = $movies->fetch_assoc()) {
+            $msg .= "<b>$i.</b> " . htmlspecialchars($m['title']) . " (Kod: <code>{$m['kino_ids']}</code>)\n";
+            $buttons[] = ['text' => (string)$i, 'callback_data' => "getMovie=" . $m['id']];
+            $i++;
+        }
+        $keyboard_rows = array_chunk($buttons, 5);
+        $keyboard_rows[] = [
+            ['text' => "⬅️", 'callback_data' => "page_{$q}_{$new_offset}_back"],
+            ['text' => "❌", 'callback_data' => "close"],
+            ['text' => "➡️", 'callback_data' => "page_{$q}_{$new_offset}_next"]
+        ];
+        edit($cid, $mid, $msg, json_encode(['inline_keyboard' => $keyboard_rows]));
+    } else {
+        accl($qid, "Boshqa natija yo'q!", true);
+    }
+    exit();
 }
 
-if($_GET['update'] == "subcribe"){
-$query = $connect->query("SELECT * FROM obunalar");
-$date = date("d.m.Y H:i");
-while($row = $query->fetch_assoc()){
-$id = $row['id'];
-if($row['subcribe_enddate'] == $date){
-$connect->query("DELETE FROM obunalar WHERE id = $id");
-sms($row['user_id'],"<b>💎 Premium obunanangiz bugun tugadi!</b>",null);
+// ==========================================
+// 🛡 ADMIN PANEL BO'LIMLARI
+// ==========================================
+
+if ($text == "/panel" || $text == "🗄 Boshqarish") {
+    if (admin($cid)) {
+        sms($cid, "<b>Admin boshqaruv paneliga xush kelibsiz!</b>", $panel);
+        step($cid, "none");
+    } else {
+        sms($cid, "<b>⚠️ Bu bo'lim faqat administratorlar uchun!</b>");
+    }
+    exit();
 }
+
+// --- 📺 KINO SOZLAMALARI ---
+if ($text == "📺 Kino sozlamalari" && admin($cid)) {
+    sms($cid, "<b>📺 Kino sozlamalari bo'limi:</b>", $movie_manager);
+    step($cid, "none");
+    exit();
 }
+
+// 1. Kino yuklash (Avtomatik kod beradi)
+if ($text == "📥 Kino yuklash" && admin($cid)) {
+    sms($cid, "<b>🍿 Kino nomini kiriting:</b>", $back_admin);
+    step($cid, "upload_movie_title");
+    exit();
 }
 
+if ($step == "upload_movie_title" && admin($cid)) {
+    if (!empty($text)) {
+        file_put_contents("step/upload_title_{$cid}.txt", $text);
+        sms($cid, "<b>✅ Kino nomi qabul qilindi:</b> <i>" . htmlspecialchars($text) . "</i>\n\n<b>Endi kinoni shu yerga video formatida yuboring:</b>", $back_admin);
+        step($cid, "upload_movie_video");
+    }
+    exit();
+}
 
+if ($step == "upload_movie_video" && admin($cid)) {
+    if (isset($message->video)) {
+        $file_id = $message->video->file_id;
+        $title_file = "step/upload_title_{$cid}.txt";
+        $title = file_exists($title_file) ? file_get_contents($title_file) : "Nomsiz film";
+        $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $title));
+        $caption = base64_encode($message->caption ?? '');
 
- 
+        // Avtomatik yangi kod yaratish
+        $last_res = $connect->query("SELECT MAX(CAST(kino_ids AS UNSIGNED)) as max_code FROM movie_data");
+        $max_code = ($last_res) ? (int)$last_res->fetch_assoc()['max_code'] : 0;
+        $new_code = $max_code + 1;
 
- 
+        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '$caption', '$file_id', '0', '$new_code', 'usual')");
 
- 
+        sms($cid, "<b>✅ Kino muvaffaqiyatli saqlandi!</b>\n\n<b>🆔 Film kodi:</b> <code>$new_code</code>\n<b>🎬 Nomi:</b> " . htmlspecialchars($title), $movie_manager);
+        
+        // Kanalga post tayyorlash
+        sms($cid, "<b>Kanalga post yuborishni xohlaysizmi?</b>", json_encode([
+            'inline_keyboard' => [
+                [['text' => "📢 Kanalga post chiqarish", 'callback_data' => "postChannel=$new_code"]]
+            ]
+        ]));
 
- 
+        step($cid, "none");
+        @unlink($title_file);
+    } else {
+        sms($cid, "<b>Iltimos, video fayl yuboring!</b>");
+    }
+    exit();
+}
 
- 
+// 2. Kino qo'shish (Maxsus kod bilan)
+if ($text == "➕ Kino qo'shish (Kod bilan)" && admin($cid)) {
+    sms($cid, "<b>Kino uchun kerakli raqamli kodni kiriting (masalan: 860):</b>", $back_admin);
+    step($cid, "custom_movie_code");
+    exit();
+}
 
- 
+if ($step == "custom_movie_code" && admin($cid)) {
+    if (is_numeric($text)) {
+        file_put_contents("step/custom_code_{$cid}.txt", $text);
+        sms($cid, "<b>✅ Kod: $text</b>\n\nEndi kino nomini kiriting:", $back_admin);
+        step($cid, "custom_movie_title");
+    } else {
+        sms($cid, "<b>Faqat raqamlardan iborat kod kiriting!</b>");
+    }
+    exit();
+}
 
- 
+if ($step == "custom_movie_title" && admin($cid)) {
+    if (!empty($text)) {
+        file_put_contents("step/custom_title_{$cid}.txt", $text);
+        sms($cid, "<b>✅ Nomi qabul qilindi!</b>\n\nEndi kinoni video formatida yuboring:", $back_admin);
+        step($cid, "custom_movie_video");
+    }
+    exit();
+}
 
- 
+if ($step == "custom_movie_video" && admin($cid)) {
+    if (isset($message->video)) {
+        $file_id = $message->video->file_id;
+        $code = file_get_contents("step/custom_code_{$cid}.txt");
+        $title = file_get_contents("step/custom_title_{$cid}.txt");
+        $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $title));
+        $caption = base64_encode($message->caption ?? '');
 
- 
+        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '$caption', '$file_id', '0', '$code', 'usual')");
 
- 
+        sms($cid, "<b>✅ Kino yuklandi!</b>\n\n<b>🆔 Kodi:</b> <code>$code</code>\n<b>🎬 Nomi:</b> " . htmlspecialchars($title), $movie_manager);
+        
+        step($cid, "none");
+        @unlink("step/custom_code_{$cid}.txt");
+        @unlink("step/custom_title_{$cid}.txt");
+    } else {
+        sms($cid, "<b>Iltimos, video fayl yuboring!</b>");
+    }
+    exit();
+}
 
- 
+// Kanalga post chiqarish
+if (strpos($data, "postChannel=") === 0) {
+    $code = explode("=", $data)[1];
+    del($cid, $mid);
+    sms($cid, "<b>Kanalga chiqarmoqchi bo'lgan postingizni (rasm/matn/video) forward qiling yoki shu yerga yozing:</b>", $back_admin);
+    step($cid, "forwardToChannel_{$code}");
+    exit();
+}
 
- 
+if (strpos($step, "forwardToChannel_") === 0 && admin($cid)) {
+    $code = explode("_", $step)[1];
+    bot('copyMessage', [
+        'chat_id' => $kanalcha,
+        'from_chat_id' => $cid,
+        'message_id' => $mid,
+        'reply_markup' => json_encode([
+            'inline_keyboard' => [
+                [['text' => "📥 Kinoni tomosha qilish", 'url' => "https://t.me/$bot?start=$code"]]
+            ]
+        ])
+    ]);
+    sms($cid, "<b>✅ Post $kanalcha kanaliga muvaffaqiyatli yuborildi!</b>", $movie_manager);
+    step($cid, "none");
+    exit();
+}
 
- 
+// 3. Kino o'chirish
+if ($text == "🗑️ Kino o‘chirish" && admin($cid)) {
+    sms($cid, "<b>O'chirmoqchi bo'lgan kino kodini kiriting:</b>", $back_admin);
+    step($cid, "delete_movie");
+    exit();
+}
 
- 
+if ($step == "delete_movie" && admin($cid)) {
+    $code = $connect->real_escape_string($text);
+    $check = $connect->query("SELECT title FROM movie_data WHERE kino_ids = '$code'");
+    if ($check && $check->num_rows > 0) {
+        $row = $check->fetch_assoc();
+        $connect->query("DELETE FROM movie_data WHERE kino_ids = '$code'");
+        sms($cid, "<b>✅ '{$row['title']}' kinosi o'chirildi!</b>", $movie_manager);
+    } else {
+        sms($cid, "<b>Bunday kodli kino topilmadi.</b>", $movie_manager);
+    }
+    step($cid, "none");
+    exit();
+}
 
- 
+// 4. Kino tahrirlash
+if ($text == "📝 Kino tahrirlash" && admin($cid)) {
+    sms($cid, "<b>Tahrirlamoqchi bo'lgan kino kodini kiriting:</b>", $back_admin);
+    step($cid, "edit_movie_search");
+    exit();
+}
 
- 
+if ($step == "edit_movie_search" && admin($cid)) {
+    $code = $connect->real_escape_string($text);
+    $res = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$code'");
+    if ($res && $res->num_rows > 0) {
+        $row = $res->fetch_assoc();
+        file_put_contents("step/edit_movie_{$cid}.txt", $row['id']);
+        sms($cid, "<b>🎬 Hozirgi nomi:</b> " . htmlspecialchars($row['title']) . "\n\n<b>Yangi nomini kiriting:</b>", $back_admin);
+        step($cid, "edit_movie_title_save");
+    } else {
+        sms($cid, "<b>Bunday kodli kino topilmadi.</b>", $movie_manager);
+        step($cid, "none");
+    }
+    exit();
+}
 
- 
+if ($step == "edit_movie_title_save" && admin($cid)) {
+    $movie_id = file_get_contents("step/edit_movie_{$cid}.txt");
+    $new_title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $text));
+    $connect->query("UPDATE movie_data SET title = '$new_title' WHERE id = '$movie_id'");
+    sms($cid, "<b>✅ Kino nomi yangilandi!</b>", $movie_manager);
+    @unlink("step/edit_movie_{$cid}.txt");
+    step($cid, "none");
+    exit();
+}
 
- 
+// --- 📢 KANALLAR SOZLAMALARI ---
+if ($text == "📢 Kanallar sozlamalari" && admin($cid)) {
+    sms($cid, "<b>📢 Majburiy a'zolik kanallari sozlamasi:</b>", $channel_manager);
+    step($cid, "none");
+    exit();
+}
 
- 
+if ($text == "*️⃣ Asosiy kino kanali" && admin($cid)) {
+    sms($cid, "<b>Hozirgi kanal:</b> $kanalcha\n\n<i>Yangi kanal username'ini kiriting (masalan: @kinolar_07):</i>", $back_admin);
+    step($cid, "set_main_channel");
+    exit();
+}
 
- 
+if ($step == "set_main_channel" && admin($cid)) {
+    $chan = trim($text);
+    $connect->query("UPDATE settings SET movieChannel = '$chan' WHERE id = 1");
+    sms($cid, "<b>✅ Asosiy kanal $chan ga o'zgartirildi!</b>", $channel_manager);
+    step($cid, "none");
+    exit();
+}
 
- 
+if ($text == "➕ Kanal qo'shish" && admin($cid)) {
+    sms($cid, "<b>Qo'shiladigan kanal turini tanlang:</b>", json_encode([
+        'inline_keyboard' => [
+            [['text' => "Oddiy ommaviy kanal", 'callback_data' => "addchan_lock"]],
+            [['text' => "So'rov qabul qiluvchi kanal", 'callback_data' => "addchan_request"]],
+            [['text' => "Ixtiyoriy link", 'callback_data' => "addchan_social"]]
+        ]
+    ]));
+    exit();
+}
 
- 
+if (strpos($data, "addchan_") === 0 && admin($cid)) {
+    $type = explode("_", $data)[1];
+    file_put_contents("step/chan_type_{$cid}.txt", $type);
+    del($cid, $mid);
 
- 
+    if ($type == "social") {
+        sms($cid, "<b>Tugma uchun nom kiriting (masalan: Instagram):</b>", $back_admin);
+        step($cid, "addchan_social_title");
+    } else {
+        sms($cid, "<b>Kanal ID raqamini kiriting (masalan: -100123456789):</b>\n\n<i>Bot kanalga administrator qilingan bo'lishi kerak!</i>", $back_admin);
+        step($cid, "addchan_id");
+    }
+    exit();
+}
 
- 
+if ($step == "addchan_social_title" && admin($cid)) {
+    file_put_contents("step/chan_title_{$cid}.txt", $text);
+    sms($cid, "<b>Endi havolani (linkni) kiriting (masalan: https://t.me/...):</b>", $back_admin);
+    step($cid, "addchan_social_link");
+    exit();
+}
 
- 
+if ($step == "addchan_social_link" && admin($cid)) {
+    $nom = base64_encode(file_get_contents("step/chan_title_{$cid}.txt"));
+    $connect->query("INSERT INTO kanallar (type, link, title, channelID) VALUES ('social', '$text', '$nom', '')");
+    sms($cid, "<b>✅ Kanal havolasi qo'shildi!</b>", $channel_manager);
+    @unlink("step/chan_title_{$cid}.txt");
+    @unlink("step/chan_type_{$cid}.txt");
+    step($cid, "none");
+    exit();
+}
 
- 
+if ($step == "addchan_id" && admin($cid)) {
+    $chan_id = trim($text);
+    $type = file_get_contents("step/chan_type_{$cid}.txt");
+    
+    // Link yaratish yoki olish
+    if ($type == "request") {
+        $link_res = bot('createChatInviteLink', [
+            'chat_id' => $chan_id,
+            'creates_join_request' => true
+        ]);
+        $link = $link_res->result->invite_link ?? '';
+    } else {
+        $chat_info = bot('getChat', ['chat_id' => $chan_id]);
+        $uname = $chat_info->result->username ?? '';
+        $link = $uname ? "https://t.me/$uname" : '';
+    }
 
- 
+    if ($link) {
+        $connect->query("INSERT INTO kanallar (channelID, link, type) VALUES ('$chan_id', '$link', '$type')");
+        sms($cid, "<b>✅ Kanal muvaffaqiyatli qo'shildi!</b>", $channel_manager);
+    } else {
+        sms($cid, "<b>⚠️ Kanal linkini olib bo'lmadi. Botni kanalga admin qilganingizni tekshiring.</b>", $channel_manager);
+    }
+    @unlink("step/chan_type_{$cid}.txt");
+    step($cid, "none");
+    exit();
+}
 
- 
+if ($text == "🗑️ Kanal o'chirish" && admin($cid)) {
+    $result = $connect->query("SELECT * FROM kanallar");
+    if ($result && $result->num_rows > 0) {
+        $buttons = [];
+        while ($row = $result->fetch_assoc()) {
+            $nom = ($row['type'] == "social") ? base64_decode($row['title']) : (bot('getChat', ['chat_id' => $row['channelID']])->result->title ?? $row['channelID']);
+            $buttons[] = [['text' => "🗑️ $nom", 'callback_data' => "delChan=" . $row['id']]];
+        }
+        sms($cid, "<b>O'chirmoqchi bo'lgan kanalni tanlang:</b>", json_encode(['inline_keyboard' => $buttons]));
+    } else {
+        sms($cid, "<b>Ulangan kanallar yo'q.</b>", $channel_manager);
+    }
+    exit();
+}
 
- 
+if (strpos($data, "delChan=") === 0 && admin($cid)) {
+    $id = explode("=", $data)[1];
+    $connect->query("DELETE FROM kanallar WHERE id = '$id'");
+    del($cid, $mid);
+    sms($cid, "<b>✅ Kanal o'chirildi!</b>", $channel_manager);
+    exit();
+}
 
- 
+// --- 📊 STATISTIKA ---
+if ($text == "📊 Statistika" && admin($cid)) {
+    $total_users = $connect->query("SELECT users_id FROM users")->num_rows;
+    $passive_users = $connect->query("SELECT users_id FROM users WHERE holat = '❌'")->num_rows;
+    $total_movies = $connect->query("SELECT id FROM movie_data")->num_rows;
+    $today = date('d.m.Y');
+    $joined_today = $connect->query("SELECT users_id FROM users WHERE vaqt LIKE '%$today%'")->num_rows;
+    $total_downloads = $connect->query("SELECT SUM(CAST(downloads AS UNSIGNED)) as total_dl FROM movie_data")->fetch_assoc()['total_dl'] ?? 0;
 
- 
+    sms($cid, "📊 <b>Tarjima Kinolar Boti Statistikasi:</b>\n
+👥 <b>Jami foydalanuvchilar:</b> $total_users ta
+🟢 <b>Faol foydalanuvchilar:</b> " . ($total_users - $passive_users) . " ta
+🔴 <b>Bloklaganlar:</b> $passive_users ta
+📅 <b>Bugun qo'shilganlar:</b> $joined_today ta
 
- 
+🎬 <b>Jami kinolar soni:</b> $total_movies ta
+👁 <b>Jami yuklab olishlar:</b> $total_downloads marta
 
- 
+⏰ <b>Vaqt:</b> " . date('H:i:s') . " | <b>Sana:</b> " . date('d.m.Y'));
+    exit();
+}
 
- 
+// --- 🤖 BOT HOLATI ---
+if ($text == "🤖 Bot holati" && admin($cid)) {
+    $btn = ($holat == "✅") ? "🔴 O'chirish" : "🟢 Yoqish";
+    sms($cid, "<b>Hozirgi bot holati:</b> $holat", json_encode([
+        'inline_keyboard' => [
+            [['text' => $btn, 'callback_data' => "toggle_bot"]]
+        ]
+    ]));
+    exit();
+}
 
- 
+if ($data == "toggle_bot" && admin($cid)) {
+    $new_status = ($holat == "✅") ? "❌" : "✅";
+    $connect->query("UPDATE settings SET status = '$new_status' WHERE id = 1");
+    del($cid, $mid);
+    sms($cid, "<b>Bot holati o'zgartirildi:</b> $new_status", $panel);
+    exit();
+}
+
+// --- 👨🏻‍⚖️ ADMINLAR SOZLAMALARI ---
+if ($text == "👨🏻‍⚖️ Adminlar sozlamalari" && admin($cid)) {
+    sms($cid, "<b>Adminlar boshqaruvi:</b>", $admin_manager);
+    step($cid, "none");
+    exit();
+}
+
+if ($text == "📋 Administrator ro'yxati" && admin($cid)) {
+    $res = $connect->query("SELECT * FROM admins");
+    $msg = "<b>Barcha administratorlar:</b>\n\n1. Asosiy admin: <code>$admin_id</code>\n";
+    $i = 2;
+    if ($res) {
+        while ($a = $res->fetch_assoc()) {
+            if ($a['user_id'] != $admin_id) {
+                $msg .= "$i. ID: <code>{$a['user_id']}</code>\n";
+                $i++;
+            }
+        }
+    }
+    sms($cid, $msg, $admin_manager);
+    exit();
+}
+
+if ($text == "➕ Administrator qo'shish" && ($cid == $admin_id)) {
+    sms($cid, "<b>Yangi adminning Telegram ID raqamini kiriting:</b>", $back_admin);
+    step($cid, "add_admin_id");
+    exit();
+}
+
+if ($step == "add_admin_id" && ($cid == $admin_id)) {
+    if (is_numeric($text)) {
+        $check = $connect->query("SELECT id FROM admins WHERE user_id = '$text'");
+        if ($check && $check->num_rows == 0) {
+            $connect->query("INSERT INTO admins (user_id) VALUES ('$text')");
+            sms($cid, "<b>✅ <code>$text</code> adminlar ro'yxatiga qo'shildi!</b>", $admin_manager);
+        } else {
+            sms($cid, "<b>Bu foydalanuvchi allaqachon admin!</b>", $admin_manager);
+        }
+    } else {
+        sms($cid, "<b>Faqat raqamli ID kiriting!</b>", $admin_manager);
+    }
+    step($cid, "none");
+    exit();
+}
+
+if ($text == "🗑️ Administrator o‘chirish" && ($cid == $admin_id)) {
+    $res = $connect->query("SELECT * FROM admins WHERE user_id != '$admin_id'");
+    if ($res && $res->num_rows > 0) {
+        $buttons = [];
+        while ($r = $res->fetch_assoc()) {
+            $buttons[] = [['text' => "🗑️ " . $r['user_id'], 'callback_data' => "delAdmin=" . $r['id']]];
+        }
+        sms($cid, "<b>O'chirmoqchi bo'lgan adminni tanlang:</b>", json_encode(['inline_keyboard' => $buttons]));
+    } else {
+        sms($cid, "<b>Qo'shimcha adminlar mavjud emas.</b>", $admin_manager);
+    }
+    exit();
+}
+
+if (strpos($data, "delAdmin=") === 0 && ($cid == $admin_id)) {
+    $aid = explode("=", $data)[1];
+    $connect->query("DELETE FROM admins WHERE id = '$aid'");
+    del($cid, $mid);
+    sms($cid, "<b>✅ Administrator o'chirildi!</b>", $admin_manager);
+    exit();
+}
+
+// --- ✉ XABAR YUBORISH (Oddiy va qulay xabar tarqatish) ---
+if ($text == "✉ Xabar Yuborish" && admin($cid)) {
+    sms($cid, "<b>Barcha foydalanuvchilarga yuboriladigan xabarni (matn/rasm/video) shu yerga yuboring:</b>", $back_admin);
+    step($cid, "broadcast_message");
+    exit();
+}
+
+if ($step == "broadcast_message" && admin($cid)) {
+    sms($cid, "<b>⏳ Xabar yuborilmoqda, kuting...</b>");
+    $users = $connect->query("SELECT user_id FROM users");
+    $sent = 0;
+    $failed = 0;
+
+    if ($users) {
+        while ($u = $users->fetch_assoc()) {
+            $uid = $u['user_id'];
+            $res = bot('copyMessage', [
+                'chat_id' => $uid,
+                'from_chat_id' => $cid,
+                'message_id' => $mid
+            ]);
+            if ($res && $res->ok) {
+                $sent++;
+            } else {
+                $failed++;
+            }
+            usleep(50000); // 0.05s Telegram chekloviga tushmaslik uchun
+        }
+    }
+
+    sms($cid, "<b>Xabar yuborish yakunlandi!</b>\n\n✅ <b>Yetkazildi:</b> $sent ta\n❌ <b>Yetib bormadi:</b> $failed ta", $panel);
+    step($cid, "none");
+    exit();
+}
