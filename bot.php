@@ -14,17 +14,22 @@ $bot = "kinolar_07_bot";
 require_once 'sql.php';
 
 // ==========================================
-// 🛠 TELEGRAM BOT FUNKSIYALARI
+// ⚡️ TEZLASHTIRILGAN TELEGRAM BOT FUNKSIYASI
 // ==========================================
 function bot($method, $datas = []) {
-    $url = "https://api.telegram.org/bot" . API_KEY . "/" . $method;
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    static $ch = null;
+    if ($ch === null) {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_TCP_NODELAY, 1);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    }
+    curl_setopt($ch, CURLOPT_URL, "https://api.telegram.org/bot" . API_KEY . "/" . $method);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     $res = curl_exec($ch);
-    curl_close($ch);
     return json_decode($res);
 }
 
@@ -99,28 +104,25 @@ function joinchat($user_id) {
         $type = $row['type'];
         $link = $row['link'];
         $channelID = $row['channelID'];
-        $title = $row['title'];
+        $title = !empty($row['title']) ? $row['title'] : "Kanal";
 
         if ($type == "lock" || $type == "request") {
-            $chat_info = bot('getChat', ['chat_id' => $channelID]);
-            $gettitle = $chat_info->result->title ?? "Kanal";
-
             if ($type == "request") {
                 $check = $connect->query("SELECT user_id FROM requests WHERE id = '$user_id' AND chat_id = '$channelID'");
                 if ($check && $check->num_rows > 0) {
-                    $buttons[] = ['text' => "✅ $gettitle", 'url' => $link];
+                    $buttons[] = ['text' => "✅ $title", 'url' => $link];
                 } else {
-                    $buttons[] = ['text' => "❌ $gettitle", 'url' => $link];
+                    $buttons[] = ['text' => "❌ $title", 'url' => $link];
                     $no_subs++;
                 }
             } elseif ($type == "lock") {
                 $member = bot('getChatMember', ['chat_id' => $channelID, 'user_id' => $user_id]);
                 $status = $member->result->status ?? 'left';
                 if ($status == "left" || $status == "kicked") {
-                    $buttons[] = ['text' => "❌ $gettitle", 'url' => $link];
+                    $buttons[] = ['text' => "❌ $title", 'url' => $link];
                     $no_subs++;
                 } else {
-                    $buttons[] = ['text' => "✅ $gettitle", 'url' => $link];
+                    $buttons[] = ['text' => "✅ $title", 'url' => $link];
                 }
             }
         } elseif ($type == "social") {
@@ -215,55 +217,50 @@ if ($message) {
 }
 
 // ==========================================
-// 📱 MENYULAR VA TUGMALAR
+// 📱 OPTIMALLASHTIRILGAN MENYULAR VA TUGMALAR
 // ==========================================
-$menu = json_encode([
-    'inline_keyboard' => [
-        [['text' => "🔎 Kinolar kanalimiz", 'url' => "https://t.me/" . str_replace('@', '', $kanalcha)]]
-    ]
-]);
 
 $panel = json_encode([
     'resize_keyboard' => true,
     'keyboard' => [
-        [['text' => "📺 Kino sozlamalari"], ['text' => "📢 Kanallar sozlamalari"]],
-        [['text' => "📊 Statistika"], ['text' => "✉ Xabar Yuborish"]],
-        [['text' => "👨🏻‍⚖️ Adminlar sozlamalari"], ['text' => "🤖 Bot holati"]],
-        [['text' => "◀️ Asosiy menyu"]]
+        [['text' => "🎬 Kinolar sozlamalari"], ['text' => "📢 Kanallar sozlamalari"]],
+        [['text' => "📊 Statistika"], ['text' => "✉️ Xabar yuborish"]],
+        [['text' => "👥 Adminlar sozlamalari"], ['text' => "⚙️ Bot holati"]],
+        [['text' => "🔙 Asosiy menyu"]]
     ]
 ]);
 
 $movie_manager = json_encode([
     'resize_keyboard' => true,
     'keyboard' => [
-        [['text' => "📥 Kino yuklash"], ['text' => "➕ Kino qo'shish (Kod bilan)"]],
-        [['text' => "📝 Kino tahrirlash"], ['text' => "🗑️ Kino o‘chirish"]],
-        [['text' => "🗄 Boshqarish"]]
+        [['text' => "➕ Kino yuklash"], ['text' => "🔢 Kod bilan qo'shish"]],
+        [['text' => "✏️ Kino tahrirlash"], ['text' => "🗑 Kino o‘chirish"]],
+        [['text' => "🗄 Boshqaruv paneli"]]
     ]
 ]);
 
 $channel_manager = json_encode([
     'resize_keyboard' => true,
     'keyboard' => [
-        [['text' => "➕ Kanal qo'shish"], ['text' => "🗑️ Kanal o'chirish"]],
-        [['text' => "*️⃣ Asosiy kino kanali"]],
-        [['text' => "🗄 Boshqarish"]]
+        [['text' => "➕ Kanal qo'shish"], ['text' => "🗑 Kanal o'chirish"]],
+        [['text' => "📢 Asosiy kanal"]],
+        [['text' => "🗄 Boshqaruv paneli"]]
     ]
 ]);
 
 $admin_manager = json_encode([
     'resize_keyboard' => true,
     'keyboard' => [
-        [['text' => "➕ Administrator qo'shish"], ['text' => "🗑️ Administrator o‘chirish"]],
-        [['text' => "📋 Administrator ro'yxati"]],
-        [['text' => "🗄 Boshqarish"]]
+        [['text' => "➕ Admin qo'shish"], ['text' => "🗑 Admin o'chirish"]],
+        [['text' => "📋 Adminlar ro'yxati"]],
+        [['text' => "🗄 Boshqaruv paneli"]]
     ]
 ]);
 
 $back_admin = json_encode([
     'resize_keyboard' => true,
     'keyboard' => [
-        [['text' => "🗄 Boshqarish"]]
+        [['text' => "🗄 Boshqaruv paneli"]]
     ]
 ]);
 
@@ -278,12 +275,11 @@ if (strpos(strtolower($text), "/start") === 0) {
     // Deep-link: /start 860
     $parts = explode(" ", $text);
     if (isset($parts[1]) && is_numeric($parts[1])) {
-        $kino_code = $parts[1];
-        send_movie_by_code($cid, $kino_code);
+        send_movie_by_code($cid, $parts[1]);
         exit();
     }
 
-    sms($cid, "<b>👋 Assalomu alaykum $first_name, botimizga xush kelibsiz!</b>\n\n<i>✍🏻 Kerakli tarjima kino kodini yoki nomini yuboring:</i>", $menu);
+    sms($cid, "✍🏻 Kino kodini yoki nomini yuboring:");
     step($cid, "none");
     exit();
 }
@@ -292,14 +288,14 @@ if (strpos(strtolower($text), "/start") === 0) {
 if ($data == "checkSub") {
     del($cid, $mid);
     if (joinchat($cid)) {
-        sms($cid, "<b>👋 Assalomu alaykum $first_name, a'zoligingiz tasdiqlandi!</b>\n\n<i>✍🏻 Kino kodini yoki nomini yuboring:</i>", $menu);
+        sms($cid, "✍🏻 Kino kodini yoki nomini yuboring:");
     }
     exit();
 }
 
 // Bosh menyuga qaytish
-if ($text == "◀️ Asosiy menyu" || $text == "◀️ Orqaga") {
-    sms($cid, "<b>Bosh menyu:</b>\n\n<i>✍🏻 Kino kodini yoki nomini yuboring:</i>", $menu);
+if ($text == "🔙 Asosiy menyu" || $text == "◀️ Asosiy menyu" || $text == "◀️ Orqaga" || $text == "🔙 Orqaga") {
+    sms($cid, "✍🏻 Kino kodini yoki nomini yuboring:");
     step($cid, "none");
     exit();
 }
@@ -423,11 +419,12 @@ function send_movie_row($chat_id, $row) {
 
 // 2. Agar foydalanuvchi matn yozsa (Kino nomi bo'yicha qidirish)
 $admin_commands = [
-    "/panel", "🗄 Boshqarish", "◀️ Asosiy menyu", "◀️ Orqaga", "/start", "/top",
-    "📺 Kino sozlamalari", "📢 Kanallar sozlamalari", "📊 Statistika", "✉ Xabar Yuborish",
-    "👨🏻‍⚖️ Adminlar sozlamalari", "🤖 Bot holati", "📥 Kino yuklash", "➕ Kino qo'shish (Kod bilan)",
-    "📝 Kino tahrirlash", "🗑️ Kino o‘chirish", "➕ Kanal qo'shish", "🗑️ Kanal o'chirish",
-    "*️⃣ Asosiy kino kanali", "➕ Administrator qo'shish", "🗑️ Administrator o‘chirish", "📋 Administrator ro'yxati"
+    "/panel", "🗄 Boshqarish", "🗄 Boshqaruv paneli", "🔙 Asosiy menyu", "◀️ Asosiy menyu", "◀️ Orqaga", "🔙 Orqaga", "/start", "/top",
+    "🎬 Kinolar sozlamalari", "📺 Kino sozlamalari", "📢 Kanallar sozlamalari", "📊 Statistika", "✉️ Xabar yuborish", "✉ Xabar Yuborish",
+    "👥 Adminlar sozlamalari", "👨🏻‍⚖️ Adminlar sozlamalari", "⚙️ Bot holati", "🤖 Bot holati", "➕ Kino yuklash", "📥 Kino yuklash",
+    "🔢 Kod bilan qo'shish", "➕ Kino qo'shish (Kod bilan)", "✏️ Kino tahrirlash", "📝 Kino tahrirlash", "🗑 Kino o‘chirish", "🗑️ Kino o‘chirish",
+    "➕ Kanal qo'shish", "🗑 Kanal o'chirish", "🗑️ Kanal o'chirish", "📢 Asosiy kanal", "*️⃣ Asosiy kino kanali",
+    "➕ Admin qo'shish", "➕ Administrator qo'shish", "🗑 Admin o'chirish", "🗑️ Administrator o‘chirish", "📋 Adminlar ro'yxati", "📋 Administrator ro'yxati"
 ];
 
 if (!empty($text) && ($step == "none" || empty($step)) && !in_array($text, $admin_commands)) {
@@ -501,7 +498,7 @@ if (strpos($data, "page_") === 0) {
 // 🛡 ADMIN PANEL BO'LIMLARI
 // ==========================================
 
-if ($text == "/panel" || $text == "🗄 Boshqarish") {
+if ($text == "/panel" || $text == "🗄 Boshqarish" || $text == "🗄 Boshqaruv paneli") {
     if (admin($cid)) {
         sms($cid, "<b>Admin boshqaruv paneliga xush kelibsiz!</b>", $panel);
         step($cid, "none");
@@ -511,15 +508,15 @@ if ($text == "/panel" || $text == "🗄 Boshqarish") {
     exit();
 }
 
-// --- 📺 KINO SOZLAMALARI ---
-if ($text == "📺 Kino sozlamalari" && admin($cid)) {
-    sms($cid, "<b>📺 Kino sozlamalari bo'limi:</b>", $movie_manager);
+// --- 🎬 KINO SOZLAMALARI ---
+if (($text == "🎬 Kinolar sozlamalari" || $text == "📺 Kino sozlamalari") && admin($cid)) {
+    sms($cid, "<b>🎬 Kinolar boshqaruvi:</b>", $movie_manager);
     step($cid, "none");
     exit();
 }
 
 // 1. Kino yuklash (Avtomatik kod beradi)
-if ($text == "📥 Kino yuklash" && admin($cid)) {
+if (($text == "➕ Kino yuklash" || $text == "📥 Kino yuklash") && admin($cid)) {
     sms($cid, "<b>🍿 Kino nomini kiriting:</b>", $back_admin);
     step($cid, "upload_movie_title");
     exit();
@@ -567,7 +564,7 @@ if ($step == "upload_movie_video" && admin($cid)) {
 }
 
 // 2. Kino qo'shish (Maxsus kod bilan)
-if ($text == "➕ Kino qo'shish (Kod bilan)" && admin($cid)) {
+if (($text == "🔢 Kod bilan qo'shish" || $text == "➕ Kino qo'shish (Kod bilan)") && admin($cid)) {
     sms($cid, "<b>Kino uchun kerakli raqamli kodni kiriting (masalan: 860):</b>", $back_admin);
     step($cid, "custom_movie_code");
     exit();
@@ -641,7 +638,7 @@ if (strpos($step, "forwardToChannel_") === 0 && admin($cid)) {
 }
 
 // 3. Kino o'chirish
-if ($text == "🗑️ Kino o‘chirish" && admin($cid)) {
+if (($text == "🗑 Kino o‘chirish" || $text == "🗑️ Kino o‘chirish") && admin($cid)) {
     sms($cid, "<b>O'chirmoqchi bo'lgan kino kodini kiriting:</b>", $back_admin);
     step($cid, "delete_movie");
     exit();
@@ -662,7 +659,7 @@ if ($step == "delete_movie" && admin($cid)) {
 }
 
 // 4. Kino tahrirlash
-if ($text == "📝 Kino tahrirlash" && admin($cid)) {
+if (($text == "✏️ Kino tahrirlash" || $text == "📝 Kino tahrirlash") && admin($cid)) {
     sms($cid, "<b>Tahrirlamoqchi bo'lgan kino kodini kiriting:</b>", $back_admin);
     step($cid, "edit_movie_search");
     exit();
@@ -700,7 +697,7 @@ if ($text == "📢 Kanallar sozlamalari" && admin($cid)) {
     exit();
 }
 
-if ($text == "*️⃣ Asosiy kino kanali" && admin($cid)) {
+if (($text == "📢 Asosiy kanal" || $text == "*️⃣ Asosiy kino kanali") && admin($cid)) {
     sms($cid, "<b>Hozirgi kanal:</b> $kanalcha\n\n<i>Yangi kanal username'ini kiriting (masalan: @kinolar_07):</i>", $back_admin);
     step($cid, "set_main_channel");
     exit();
@@ -761,7 +758,10 @@ if ($step == "addchan_id" && admin($cid)) {
     $chan_id = trim($text);
     $type = file_get_contents("step/chan_type_{$cid}.txt");
     
-    // Link yaratish yoki olish
+    // Link va nomini olish
+    $chat_info = bot('getChat', ['chat_id' => $chan_id]);
+    $title_val = $chat_info->result->title ?? "Kanal";
+
     if ($type == "request") {
         $link_res = bot('createChatInviteLink', [
             'chat_id' => $chan_id,
@@ -769,13 +769,13 @@ if ($step == "addchan_id" && admin($cid)) {
         ]);
         $link = $link_res->result->invite_link ?? '';
     } else {
-        $chat_info = bot('getChat', ['chat_id' => $chan_id]);
         $uname = $chat_info->result->username ?? '';
         $link = $uname ? "https://t.me/$uname" : '';
     }
 
     if ($link) {
-        $connect->query("INSERT INTO kanallar (channelID, link, type) VALUES ('$chan_id', '$link', '$type')");
+        $title_val = $connect->real_escape_string($title_val);
+        $connect->query("INSERT INTO kanallar (channelID, link, type, title) VALUES ('$chan_id', '$link', '$type', '$title_val')");
         sms($cid, "<b>✅ Kanal muvaffaqiyatli qo'shildi!</b>", $channel_manager);
     } else {
         sms($cid, "<b>⚠️ Kanal linkini olib bo'lmadi. Botni kanalga admin qilganingizni tekshiring.</b>", $channel_manager);
@@ -785,12 +785,12 @@ if ($step == "addchan_id" && admin($cid)) {
     exit();
 }
 
-if ($text == "🗑️ Kanal o'chirish" && admin($cid)) {
+if (($text == "🗑 Kanal o'chirish" || $text == "🗑️ Kanal o'chirish") && admin($cid)) {
     $result = $connect->query("SELECT * FROM kanallar");
     if ($result && $result->num_rows > 0) {
         $buttons = [];
         while ($row = $result->fetch_assoc()) {
-            $nom = ($row['type'] == "social") ? base64_decode($row['title']) : (bot('getChat', ['chat_id' => $row['channelID']])->result->title ?? $row['channelID']);
+            $nom = ($row['type'] == "social") ? base64_decode($row['title']) : ($row['title'] ?: $row['channelID']);
             $buttons[] = [['text' => "🗑️ $nom", 'callback_data' => "delChan=" . $row['id']]];
         }
         sms($cid, "<b>O'chirmoqchi bo'lgan kanalni tanlang:</b>", json_encode(['inline_keyboard' => $buttons]));
@@ -830,8 +830,8 @@ if ($text == "📊 Statistika" && admin($cid)) {
     exit();
 }
 
-// --- 🤖 BOT HOLATI ---
-if ($text == "🤖 Bot holati" && admin($cid)) {
+// --- ⚙️ BOT HOLATI ---
+if (($text == "⚙️ Bot holati" || $text == "🤖 Bot holati") && admin($cid)) {
     $btn = ($holat == "✅") ? "🔴 O'chirish" : "🟢 Yoqish";
     sms($cid, "<b>Hozirgi bot holati:</b> $holat", json_encode([
         'inline_keyboard' => [
@@ -849,14 +849,14 @@ if ($data == "toggle_bot" && admin($cid)) {
     exit();
 }
 
-// --- 👨🏻‍⚖️ ADMINLAR SOZLAMALARI ---
-if ($text == "👨🏻‍⚖️ Adminlar sozlamalari" && admin($cid)) {
+// --- 👥 ADMINLAR SOZLAMALARI ---
+if (($text == "👥 Adminlar sozlamalari" || $text == "👨🏻‍⚖️ Adminlar sozlamalari") && admin($cid)) {
     sms($cid, "<b>Adminlar boshqaruvi:</b>", $admin_manager);
     step($cid, "none");
     exit();
 }
 
-if ($text == "📋 Administrator ro'yxati" && admin($cid)) {
+if (($text == "📋 Adminlar ro'yxati" || $text == "📋 Administrator ro'yxati") && admin($cid)) {
     $res = $connect->query("SELECT * FROM admins");
     $msg = "<b>Barcha administratorlar:</b>\n\n1. Asosiy admin: <code>$admin_id</code>\n";
     $i = 2;
@@ -872,7 +872,7 @@ if ($text == "📋 Administrator ro'yxati" && admin($cid)) {
     exit();
 }
 
-if ($text == "➕ Administrator qo'shish" && ($cid == $admin_id)) {
+if (($text == "➕ Admin qo'shish" || $text == "➕ Administrator qo'shish") && ($cid == $admin_id)) {
     sms($cid, "<b>Yangi adminning Telegram ID raqamini kiriting:</b>", $back_admin);
     step($cid, "add_admin_id");
     exit();
@@ -894,7 +894,7 @@ if ($step == "add_admin_id" && ($cid == $admin_id)) {
     exit();
 }
 
-if ($text == "🗑️ Administrator o‘chirish" && ($cid == $admin_id)) {
+if (($text == "🗑 Admin o'chirish" || $text == "🗑️ Administrator o‘chirish") && ($cid == $admin_id)) {
     $res = $connect->query("SELECT * FROM admins WHERE user_id != '$admin_id'");
     if ($res && $res->num_rows > 0) {
         $buttons = [];
@@ -916,8 +916,8 @@ if (strpos($data, "delAdmin=") === 0 && ($cid == $admin_id)) {
     exit();
 }
 
-// --- ✉ XABAR YUBORISH (Oddiy va qulay xabar tarqatish) ---
-if ($text == "✉ Xabar Yuborish" && admin($cid)) {
+// --- ✉️ XABAR YUBORISH ---
+if (($text == "✉️ Xabar yuborish" || $text == "✉ Xabar Yuborish") && admin($cid)) {
     sms($cid, "<b>Barcha foydalanuvchilarga yuboriladigan xabarni (matn/rasm/video) shu yerga yuboring:</b>", $back_admin);
     step($cid, "broadcast_message");
     exit();
@@ -942,7 +942,7 @@ if ($step == "broadcast_message" && admin($cid)) {
             } else {
                 $failed++;
             }
-            usleep(50000); // 0.05s Telegram chekloviga tushmaslik uchun
+            usleep(30000); // 0.03s
         }
     }
 

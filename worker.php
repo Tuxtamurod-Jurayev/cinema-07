@@ -1,33 +1,51 @@
 <?php
-// worker.php - Telegram Polling Runner
+// worker.php - Yuqori tezlikdagi Telegram Polling Runner
+set_time_limit(0);
 
 const API_KEY = "8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw";
 
 function tg_request($method, $data = []) {
-    $url = "https://api.telegram.org/bot" . API_KEY . "/" . $method;
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    static $ch = null;
+    if ($ch === null) {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_TCP_NODELAY, 1);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    }
+    curl_setopt($ch, CURLOPT_URL, "https://api.telegram.org/bot" . API_KEY . "/" . $method);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     $res = curl_exec($ch);
-    curl_close($ch);
     return json_decode($res);
 }
 
-echo "Telegram Webhook o'chirilmoqda...\n";
-$del = tg_request('deleteWebhook', ['drop_pending_updates' => false]);
-if ($del && $del->ok) {
-    echo "Webhook muvaffaqiyatli tozalandi!\n";
+function send_to_bot($json_payload) {
+    static $ch_bot = null;
+    if ($ch_bot === null) {
+        $ch_bot = curl_init('http://127.0.0.1:8000/bot.php');
+        curl_setopt($ch_bot, CURLOPT_POST, true);
+        curl_setopt($ch_bot, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'Connection: keep-alive']);
+        curl_setopt($ch_bot, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch_bot, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch_bot, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        curl_setopt($ch_bot, CURLOPT_TCP_NODELAY, 1);
+    }
+    curl_setopt($ch_bot, CURLOPT_POSTFIELDS, $json_payload);
+    return curl_exec($ch_bot);
 }
 
+echo "Telegram Webhook tekshirilmoqda...\n";
+tg_request('deleteWebhook', ['drop_pending_updates' => false]);
+echo "✅ Tezkor Polling boshlandi! Xabarlar bir zumda qayta ishlanadi...\n";
+
 $offset = 0;
-echo "Bot ishga tushdi va xabarlarni qabul qilmoqda (Polling faol)...\n";
 
 while (true) {
     $updates = tg_request('getUpdates', [
         'offset' => $offset,
-        'limit' => 10,
+        'limit' => 20,
         'timeout' => 5
     ]);
 
@@ -35,19 +53,16 @@ while (true) {
         foreach ($updates->result as $up) {
             $offset = $up->update_id + 1;
             
-            $ch = curl_init('http://127.0.0.1:8000/bot.php');
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($up));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
-            $response = curl_exec($ch);
-            curl_close($ch);
+            // Xabarni bot.php ga darhol jo'natish
+            send_to_bot(json_encode($up));
             
             $sender = $up->message->from->first_name ?? ($up->callback_query->from->first_name ?? 'User');
-            $text = $up->message->text ?? ($up->callback_query->data ?? '');
-            echo "[" . date('H:i:s') . "] Xabar keldi: {$sender} - '{$text}' -> bot.php ga yuborildi.\n";
+            $txt = $up->message->text ?? ($up->callback_query->data ?? '');
+            echo "[" . date('H:i:s') . "] ⚡️ {$sender}: '{$txt}' -> bot.php (bajarildi)\n";
         }
+        // Yangi xabarlar bo'lsa kutmasdan darhol davom etadi
+        continue;
     }
-    usleep(250000); // 0.25 soniya tanaffus
+    
+    usleep(50000); // 0.05 soniya
 }
