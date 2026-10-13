@@ -8,7 +8,7 @@ const API_KEY = "8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw";
 $TokhtasinovUz = "365446274";
 $admin_phone = "998930406364";
 $owners = [$TokhtasinovUz];
-$bot = bot('getme')->result->username;
+$bot = "kinolar_07_bot";
 
 function bot($method,$datas=[]){
 $url = "https://api.telegram.org/bot".API_KEY."/".$method;
@@ -154,38 +154,38 @@ exit();
  
 
 $update = json_decode(file_get_contents('php://input'));
-$message = $update->message;
-$cid = $message->chat->id;
-$name = $message->chat->first_name;
-$tx = $message->text;
-$mid = $message->message_id;
-$type = $message->chat->type;
-$text = $message->text;
-$uid= $message->from->id;
-$name = $message->from->first_name;
-$familya = $message->from->last_name;
-$bio = $message->from->about;
-$username = $message->from->username;
-$chat_id = $message->chat->id;
-$message_id = $message->message_id;
-$reply = $message->reply_to_message->text;
+$message = $update->message ?? null;
+$cid = $message->chat->id ?? null;
+$name = $message->chat->first_name ?? '';
+$tx = $message->text ?? '';
+$mid = $message->message_id ?? null;
+$type = $message->chat->type ?? '';
+$text = $message->text ?? '';
+$uid= $message->from->id ?? null;
+$name = $message->from->first_name ?? '';
+$familya = $message->from->last_name ?? '';
+$bio = $message->from->about ?? '';
+$username = $message->from->username ?? '';
+$chat_id = $cid;
+$message_id = $mid;
+$reply = $message->reply_to_message->text ?? null;
 $nameru = "<a href='tg://user?id=$uid'>$name $familya</a>";
-$photo = $message->photo;
-$file = $photo[count($photo)-1]->file_id;
+$photo = $message->photo ?? null;
+$file = !empty($photo) ? $photo[count($photo)-1]->file_id : null;
 
-$botdel = $update->my_chat_member->new_chat_member; 
-$botdelid = $update->my_chat_member->from->id; 
-$userstatus= $botdel->status; 
+$botdel = $update->my_chat_member->new_chat_member ?? null; 
+$botdelid = $update->my_chat_member->from->id ?? null; 
+$userstatus = $botdel->status ?? null; 
 
-$contact = $message->contact;
-$contact_id = $contact->user_id;
-$contact_user = $contact->username;
-$contact_name = $contact->first_name;
-$phone = $contact->phone_number;
+$contact = $message->contact ?? null;
+$contact_id = $contact->user_id ?? null;
+$contact_user = $contact->username ?? null;
+$contact_name = $contact->first_name ?? null;
+$phone = $contact->phone_number ?? null;
 
-$chat_join_request = $update->chat_join_request;
-$join_chat_id = $chat_join_request->chat->id;
-$join_user_id = $chat_join_request->from->id;
+$chat_join_request = $update->chat_join_request ?? null;
+$join_chat_id = $chat_join_request->chat->id ?? null;
+$join_user_id = $chat_join_request->from->id ?? null;
 
 if(isset($chat_join_request)){
 $connect->query("INSERT INTO requests (id, chat_id) VALUES ('$join_user_id', '$join_chat_id')");
@@ -193,18 +193,20 @@ $connect->query("INSERT INTO requests (id, chat_id) VALUES ('$join_user_id', '$j
 
 
 //inline uchun metodlar
-$data = $update->callback_query->data;
-$qid = $update->callback_query->id;
-$id = $update->inline_query->id;
-$query = $update->inline_query->query;
-$query_id = $update->inline_query->from->id;
-$cid2 = $update->callback_query->message->chat->id;
-$mid2 = $update->callback_query->message->message_id;
-$callfrid = $update->callback_query->from->id;
-$callname = $update->callback_query->from->first_name;
-$calluser = $update->callback_query->from->username;
-$surname = $update->callback_query->from->last_name;
-$about = $update->callback_query->from->about;
+$callback_query = $update->callback_query ?? null;
+$inline_query = $update->inline_query ?? null;
+$data = $callback_query->data ?? null;
+$qid = $callback_query->id ?? null;
+$id = $inline_query->id ?? null;
+$query = $inline_query->query ?? null;
+$query_id = $inline_query->from->id ?? null;
+$cid2 = $callback_query->message->chat->id ?? null;
+$mid2 = $callback_query->message->message_id ?? null;
+$callfrid = $callback_query->from->id ?? null;
+$callname = $callback_query->from->first_name ?? '';
+$calluser = $callback_query->from->username ?? '';
+$surname = $callback_query->from->last_name ?? '';
+$about = $callback_query->from->about ?? '';
 $nameuz = "<a href='tg://user?id=$callfrid'>$callname $surname</a>";
 
 // <--------- @obito_us --------->
@@ -365,7 +367,7 @@ if((strtolower($text) == "/start") and joinchat($cid)==1){
 sms($cid,"<b>👋 Assalomu alaykum $name  botimizga xush kelibsiz.</b>
 
 <i>✍🏻 Kino kodini yuboring.</i>",$menu);
-unlink("step/test1.txt");
+@unlink("step/test1.txt");
 step($cid,"none");
 exit();
 }
@@ -402,7 +404,7 @@ exit;
 if($text == "🗄 Boshqarish" or $text=="/panel"){
 if(admin($cid)==1){
 sms($cid,"<b>Admin paneliga xush kelibsiz!</b>",$panel);
-unlink("step/test1.txt");
+@unlink("step/test1.txt");
 step($cid,"none");
 exit();
 }else{
@@ -608,7 +610,7 @@ sms($cid,"<b>✅ Kanal muvoffaqiyatli qo‘shildi</b>",$panel);
 sms($cid,"<b>⚠️ Kanal qo‘shishda xatolik!</b>\n\n<code>{$connect->error}</code>",$panel);
 }
 step($cid,"none");  
-unlink("step/$cid.type");
+@unlink("step/$cid.type");
 }
 
  
@@ -1003,7 +1005,7 @@ sms($cid,"⚠️ <b>Xatolik!</b>
 <code>$connect->error</code>",$aort);
 }
 step($cid,"none");
-unlink("step/test1.txt");
+@unlink("step/test1.txt");
 }
 
 if(mb_stripos($data,"sms_")!==false){
@@ -1095,8 +1097,8 @@ sms($cid,"⚠️ <b>Xatolik!</b>
 
 <code>$connect->error</code>",$aort);
 }
-unlink("step/test1.txt");
-unlink("step/movie_id.txt");
+@unlink("step/test1.txt");
+@unlink("step/movie_id.txt");
 step($cid,"none");
 exit;
 }
@@ -1745,27 +1747,28 @@ if(isset($text) and (empty($step) or $step == "none") and joinchat($cid)==1){
 if($text != "/panel" and $text != "◀️ Orqaga" and $text != "/start" and $text != "/top" and $text != "/vip" and $text != "/premium" and $text != "🤖 Bot holati" and $text != "📊 Statistika" and $text != "✉ Xabar Yuborish" and $text != "🗄 Boshqarish" and $text != "👨🏻‍⚖️ Adminlar sozlamalari" and $text !="➕ Administrator qo'shish" and $text != "🗑️ Administrator o‘chirish" and $text != "📋 Administrator ro'yxati" and $text != "📺 Kino sozlamalari" and $text != "📥 Kino yuklash" and $text != "🗑️ Kino o‘chirish" and $text != "➕ Kino qo'shish" and $text != "📝 Kino tahrirlash" and $text != "📢 Kanallar sozlamalari" and $text != "➕ Kanal qo'shish" and $text != "🗑️ Kanal o'chirish" and $text != "*️⃣ Qo'shimcha kanallar"){
 $text = str_replace(["‘","’","´","`"],["'","'","'","'"],$text);
 $text = $connect->real_escape_string($text);
-$result = mysqli_query($connect,"SELECT * FROM `movie_data` WHERE title LIKE '%$text%' LIMIT 0,10");
-$i = 1;
-$ttt = "";
-while($a = mysqli_fetch_assoc($result)){
-$ttt .= "$i. <b>$a[title]</b>\n";
-$uz[]=['text'=>$i,'callback_data'=>"downloadMovie=".$a['id']];
-$i++;
-}
-$keyboard2=array_chunk($uz,5);
-$keyboard2[]=[['text'=>"⬅️",'callback_data'=>"pagenationMovie_{$text}_0_back"],['text'=>"❌",'callback_data'=>"close"],['text'=>"➡️",'callback_data'=>"pagenationMovie_{$text}_0_next"]];
-$kb=json_encode(['inline_keyboard'=>$keyboard2]);
 $stat = mysqli_num_rows(mysqli_query($connect,"SELECT * FROM `movie_data` WHERE title LIKE '%$text%'"));
-if($stat == "0"){
-sms($cid,"<b>😔 Hech narsa topilmadi
+if($stat == 0){
+    sms($cid,"<b>😔 Hech narsa topilmadi
 
-Nomni boshqacharoq yozib koʻring shunda ham topilmasa @Boboazizov'ga murojaat qiling</b>",null);
-exit;
+Nomni boshqacharoq yozib koʻring yoki kino kodini yuboring.</b>",null);
+    exit;
 }else{
-$stat2 = $stat < "10" ? $stat : "10";
-sms($cid,"<b>Natijalar 1-$stat2 $stat dan</b>\n\n$ttt",$kb);
-exit;
+    $result = mysqli_query($connect,"SELECT * FROM `movie_data` WHERE title LIKE '%$text%' LIMIT 0,10");
+    $i = 1;
+    $ttt = "";
+    $uz = [];
+    while($a = mysqli_fetch_assoc($result)){
+        $ttt .= "$i. <b>$a[title]</b>\n";
+        $uz[]=['text'=>$i,'callback_data'=>"downloadMovie=".$a['id']];
+        $i++;
+    }
+    $keyboard2=array_chunk($uz,5);
+    $keyboard2[]=[['text'=>"⬅️",'callback_data'=>"pagenationMovie_{$text}_0_back"],['text'=>"❌",'callback_data'=>"close"],['text'=>"➡️",'callback_data'=>"pagenationMovie_{$text}_0_next"]];
+    $kb=json_encode(['inline_keyboard'=>$keyboard2]);
+    $stat2 = $stat < 10 ? $stat : 10;
+    sms($cid,"<b>Natijalar 1-$stat2 ($stat dan)</b>\n\n$ttt",$kb);
+    exit;
 }
 }
 }
