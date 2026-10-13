@@ -1,0 +1,8 @@
+# Temporary step files
+step/*.txt
+step/*.type
+step/*.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
