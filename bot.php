@@ -77,6 +77,12 @@ function step($user_id, $val) {
     global $connect;
     $val = $connect->real_escape_string($val);
     $connect->query("UPDATE users SET step = '$val' WHERE user_id = '$user_id'");
+    @mkdir(__DIR__ . '/step', 0777, true);
+    if ($val === "none" || empty($val)) {
+        @unlink(__DIR__ . "/step/step_{$user_id}.txt");
+    } else {
+        @file_put_contents(__DIR__ . "/step/step_{$user_id}.txt", $val);
+    }
 }
 
 // Reklama va keraksiz matnlarni tozalab kino nomini ajratib olish funksiyasi
@@ -92,12 +98,15 @@ function extract_clean_movie_title($caption, $file_name = '') {
             if (preg_match('/(kanal|obuna|admin|reklama|a\'zo|bosing|ulashing|bizning)/ui', $line)) continue;
             if (preg_match('/(hajmi|formati|tili|davomiyligi|sifati|yili|janr|til|davlat)\s*[:\-]/ui', $line)) continue;
             
-            // Emojilar va belgilarni boshidan tozalash: 🎬, 🍿, 🎥, 🎞, ✨, etc.
-            $cleaned = preg_replace('/^[\s🎬🍿🎥🎞️✨🔹🔸▫️▪️⭐️★\-\:\#\|\+]+/u', '', $line);
+            // Boshidagi har qanday belgilar va emojilarni tozalash: \p{P} (tinish belgilari), \p{S} (emojilar/belgilar)
+            $cleaned = preg_replace('/^[\p{P}\p{S}\s]+/u', '', $line);
             // "Kino nomi:", "Film nomi:", "Nomi:", "Film:", "Kino:" so'zlarini tozalash
             $cleaned = preg_replace('/^(kino\s*nomi|film\s*nomi|nomi|film|kino)\s*[\:\-]?\s*/ui', '', $cleaned);
+            $cleaned = preg_replace('/^[\p{P}\p{S}\s]+/u', '', $cleaned);
             // Qator oxiridagi keraksiz belgilarni tozalash
-            $cleaned = preg_replace('/[\s🎬🍿🎥🎞️✨🔹🔸▫️▪️⭐️★\-\:\#\|\+]+$/u', '', $cleaned);
+            $cleaned = preg_replace('/[\p{P}\p{S}\s]+$/u', '', $cleaned);
+            // Sifat/format ma'lumotlarini qirqish
+            $cleaned = preg_replace('/\s*(uzbek\s*tilida|o\'zbek\s*tilida|o\'zbekcha\s*tarjima|tarjima\s*kino|full\s*hd|tas-ix\s*skachat|skachat).*$/ui', '', $cleaned);
             $cleaned = trim($cleaned);
             
             if (mb_strlen($cleaned, 'UTF-8') >= 2) {
@@ -259,6 +268,12 @@ if ($message) {
 } else {
     $user_check = $connect->query("SELECT step FROM users WHERE user_id = '$cid'");
     $step = ($user_check && $user_check->num_rows > 0) ? $user_check->fetch_assoc()['step'] : 'none';
+}
+
+// Step fayl orqali zaxira tekshiruvi (MySQL kechikishi yoki xatolariga qarshi)
+$file_step = file_exists(__DIR__ . "/step/step_{$cid}.txt") ? trim(file_get_contents(__DIR__ . "/step/step_{$cid}.txt")) : '';
+if (!empty($file_step) && ($step == 'none' || empty($step))) {
+    $step = $file_step;
 }
 
 // ==========================================
@@ -565,9 +580,14 @@ if ($step == "upload_movie_title" && admin($cid)) {
     
     // 1-holat: Admin kino nomini yozib yubordi
     if (!empty($text)) {
-        file_put_contents(__DIR__ . "/step/upload_title_{$cid}.txt", $text);
-        step($cid, "upload_movie_video|" . base64_encode($text));
-        sms($cid, "<b>✅ Kino nomi qabul qilindi:</b> <i>" . htmlspecialchars($text) . "</i>\n\n<b>Endi kinoni shu yerga video formatida yuboring:</b>", $back_admin);
+        $clean_title = preg_replace('/^[\p{P}\p{S}\s]+/u', '', $text);
+        $clean_title = preg_replace('/^(kino\s*nomi|film\s*nomi|nomi|film|kino)\s*[\:\-]?\s*/ui', '', $clean_title);
+        $clean_title = trim(preg_replace('/^[\p{P}\p{S}\s]+/u', '', $clean_title));
+        if (empty($clean_title)) $clean_title = trim($text);
+        
+        file_put_contents(__DIR__ . "/step/upload_title_{$cid}.txt", $clean_title);
+        step($cid, "upload_movie_video|" . base64_encode($clean_title));
+        sms($cid, "<b>✅ Kino nomi qabul qilindi:</b> <i>" . htmlspecialchars($clean_title) . "</i>\n\n<b>Endi kinoni shu yerga video formatida yuboring:</b>", $back_admin);
         exit();
     }
     
@@ -645,10 +665,22 @@ if (strpos($step, "upload_movie_video") === 0 && admin($cid)) {
 
         step($cid, "none");
         @unlink($title_file);
+        exit();
+    } elseif (!empty($text)) {
+        // Agar admin video o'rniga yana yangi nom yozsa, kino nomini yangilaymiz!
+        $clean_title = preg_replace('/^[\p{P}\p{S}\s]+/u', '', $text);
+        $clean_title = preg_replace('/^(kino\s*nomi|film\s*nomi|nomi|film|kino)\s*[\:\-]?\s*/ui', '', $clean_title);
+        $clean_title = trim(preg_replace('/^[\p{P}\p{S}\s]+/u', '', $clean_title));
+        if (empty($clean_title)) $clean_title = trim($text);
+        
+        file_put_contents(__DIR__ . "/step/upload_title_{$cid}.txt", $clean_title);
+        step($cid, "upload_movie_video|" . base64_encode($clean_title));
+        sms($cid, "<b>✅ Kino nomi yangilandi:</b> <i>" . htmlspecialchars($clean_title) . "</i>\n\n<b>Endi kinoni shu yerga video formatida yuboring:</b>", $back_admin);
+        exit();
     } else {
         sms($cid, "<b>Iltimos, video fayl yuboring!</b>");
+        exit();
     }
-    exit();
 }
 
 // Admin bosh menyuda turib to'g'ridan-to'g'ri boshqa kanaldan videoni tashlasa:
