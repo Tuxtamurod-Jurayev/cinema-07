@@ -6,22 +6,24 @@ echo ======================================================
 echo       KINO TELEGRAM BOT ISHGA TUSHIRILMOQDA
 echo ======================================================
 
-:: MySQL tekshirish
+:: MySQL tekshirish va ishga tushirish
 tasklist /FI "IMAGENAME eq mysqld.exe" 2>NUL | find /I /N "mysqld.exe">NUL
 if "%ERRORLEVEL%"=="1" (
     echo [1/3] MySQL ishga tushirilmoqda...
-    start /B "" "C:\xampp\mysql\bin\mysqld.exe" --standalone
-    timeout /t 2 >nul
+    start "MySQL" /MIN "C:\xampp\mysql\bin\mysqld.exe" --defaults-file="C:\xampp\mysql\bin\my.ini" --console
+    timeout /t 3 >nul
 ) else (
     echo [1/3] MySQL allaqachon faol.
 )
 
 :: PHP Web server tekshirish / ishga tushirish
 echo [2/3] PHP Web Server tekshirilmoqda (127.0.0.1:8000)...
-netstat -ano | findstr "8000" >nul
+netstat -ano | findstr ":8000" >nul
 if "%ERRORLEVEL%"=="1" (
-    start /B php -S 127.0.0.1:8000
+    start "PHP-Server" /MIN php -S 127.0.0.1:8000
     timeout /t 1 >nul
+) else (
+    echo [2/3] PHP Web Server allaqachon faol.
 )
 
 :: Polling worker ishga tushirish

@@ -79,6 +79,47 @@ function step($user_id, $val) {
     $connect->query("UPDATE users SET step = '$val' WHERE user_id = '$user_id'");
 }
 
+// Reklama va keraksiz matnlarni tozalab kino nomini ajratib olish funksiyasi
+function extract_clean_movie_title($caption, $file_name = '') {
+    $title = '';
+    if (!empty($caption)) {
+        $lines = preg_split("/\r\n|\n|\r/", trim($caption));
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line)) continue;
+            // Havolalar, kanallar yoki reklama kalit so'zlarini o'tkazib yuborish
+            if (preg_match('/^(https?:\/\/|t\.me\/|@)/i', $line)) continue;
+            if (preg_match('/(kanal|obuna|admin|reklama|a\'zo|bosing|ulashing|bizning)/ui', $line)) continue;
+            if (preg_match('/(hajmi|formati|tili|davomiyligi|sifati|yili|janr|til|davlat)\s*[:\-]/ui', $line)) continue;
+            
+            // Emojilar va belgilarni boshidan tozalash: 🎬, 🍿, 🎥, 🎞, ✨, etc.
+            $cleaned = preg_replace('/^[\s🎬🍿🎥🎞️✨🔹🔸▫️▪️⭐️★\-\:\#\|\+]+/u', '', $line);
+            // "Kino nomi:", "Film nomi:", "Nomi:", "Film:", "Kino:" so'zlarini tozalash
+            $cleaned = preg_replace('/^(kino\s*nomi|film\s*nomi|nomi|film|kino)\s*[\:\-]?\s*/ui', '', $cleaned);
+            // Qator oxiridagi keraksiz belgilarni tozalash
+            $cleaned = preg_replace('/[\s🎬🍿🎥🎞️✨🔹🔸▫️▪️⭐️★\-\:\#\|\+]+$/u', '', $cleaned);
+            $cleaned = trim($cleaned);
+            
+            if (mb_strlen($cleaned, 'UTF-8') >= 2) {
+                $title = $cleaned;
+                break;
+            }
+        }
+    }
+    
+    // Agar caption dan topilmasa, video fayl nomidan olish
+    if (empty($title) && !empty($file_name)) {
+        $name = preg_replace('/\.[a-zA-Z0-9]+$/', '', $file_name);
+        $name = preg_replace('/[._\-+]/', ' ', $name);
+        $name = trim(preg_replace('/\s+/', ' ', $name));
+        if (mb_strlen($name, 'UTF-8') >= 2) {
+            $title = $name;
+        }
+    }
+    
+    return $title;
+}
+
 function admin($user_id) {
     global $connect, $admin_id;
     if ($user_id == $admin_id) {
@@ -148,7 +189,11 @@ function joinchat($user_id) {
 // ==========================================
 // 📥 KELGAN XABARNI QABUL QILISH
 // ==========================================
-$update = json_decode(file_get_contents('php://input'));
+$raw_input = file_get_contents('php://input');
+if (empty($raw_input) && php_sapi_name() === 'cli') {
+    $raw_input = file_get_contents('php://stdin');
+}
+$update = json_decode($raw_input);
 if (!$update) exit();
 
 $message = $update->message ?? null;
@@ -394,14 +439,7 @@ function send_movie_row($chat_id, $row) {
     // Yuklanishlar sonini oshirish
     $connect->query("UPDATE movie_data SET downloads = '$downloads' WHERE id = '$id'");
     
-    $caption_text = !empty($row['caption']) ? base64_decode($row['caption']) : "";
-    $full_caption = "🎬 <b>{$title}</b>\n";
-    if ($caption_text) {
-        $full_caption .= "\n" . $caption_text . "\n";
-    }
-    $full_caption .= "\n<b>🆔 Film kodi:</b> <code>$kino_code</code>";
-    $full_caption .= "\n<b>👁 Yuklashlar soni:</b> $downloads";
-    $full_caption .= "\n\n<b>🤖 Bizning bot:</b> @$bot";
+    $full_caption = "🎬  :  <b>{$title}</b>\n\n<b>🆔 Film kodi:</b> {$kino_code}\n<b>🤖 Bizning bot:</b> @{$bot}";
 
     bot('sendVideo', [
         'chat_id' => $chat_id,
@@ -517,38 +555,88 @@ if (($text == "🎬 Kinolar sozlamalari" || $text == "📺 Kino sozlamalari") &&
 
 // 1. Kino yuklash (Avtomatik kod beradi)
 if (($text == "➕ Kino yuklash" || $text == "📥 Kino yuklash") && admin($cid)) {
-    sms($cid, "<b>🍿 Kino nomini kiriting:</b>", $back_admin);
+    sms($cid, "<b>🍿 Kino nomini kiriting:</b>\n\n<i>(Yoki to'g'ridan-to'g'ri boshqa kanaldan videoni shu yerga forward qilib yuboring)</i>", $back_admin);
     step($cid, "upload_movie_title");
     exit();
 }
 
 if ($step == "upload_movie_title" && admin($cid)) {
+    @mkdir(__DIR__ . '/step', 0777, true);
+    
+    // 1-holat: Admin kino nomini yozib yubordi
     if (!empty($text)) {
-        file_put_contents("step/upload_title_{$cid}.txt", $text);
+        file_put_contents(__DIR__ . "/step/upload_title_{$cid}.txt", $text);
+        step($cid, "upload_movie_video|" . base64_encode($text));
         sms($cid, "<b>✅ Kino nomi qabul qilindi:</b> <i>" . htmlspecialchars($text) . "</i>\n\n<b>Endi kinoni shu yerga video formatida yuboring:</b>", $back_admin);
-        step($cid, "upload_movie_video");
+        exit();
+    }
+    
+    // 2-holat: Admin nom yozmasdan to'g'ridan-to'g'ri videoni yubordi (forward qildi)
+    if (isset($message->video)) {
+        $file_id = $message->video->file_id;
+        $raw_caption = $message->caption ?? '';
+        $file_name = $message->video->file_name ?? '';
+        $title = extract_clean_movie_title($raw_caption, $file_name);
+        
+        $last_res = $connect->query("SELECT MAX(CAST(kino_ids AS UNSIGNED)) as max_code FROM movie_data");
+        $max_code = ($last_res) ? (int)$last_res->fetch_assoc()['max_code'] : 0;
+        $new_code = $max_code + 1;
+        
+        if (empty($title)) {
+            $title = "Kino #$new_code";
+        }
+        
+        $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $title));
+        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '', '$file_id', '0', '$new_code', 'usual')");
+        
+        sms($cid, "<b>✅ Kino muvaffaqiyatli saqlandi!</b>\n\n🎬  :  <b>" . htmlspecialchars($title) . "</b>\n\n<b>🆔 Film kodi:</b> <code>$new_code</code>\n<b>🤖 Bizning bot:</b> @$bot", $movie_manager);
+        
+        sms($cid, "<b>Kanalga post yuborishni xohlaysizmi?</b>", json_encode([
+            'inline_keyboard' => [
+                [['text' => "📢 Kanalga post chiqarish", 'callback_data' => "postChannel=$new_code"]]
+            ]
+        ]));
+        
+        step($cid, "none");
+        exit();
     }
     exit();
 }
 
-if ($step == "upload_movie_video" && admin($cid)) {
+if (strpos($step, "upload_movie_video") === 0 && admin($cid)) {
     if (isset($message->video)) {
         $file_id = $message->video->file_id;
-        $title_file = "step/upload_title_{$cid}.txt";
-        $title = file_exists($title_file) ? file_get_contents($title_file) : "Nomsiz film";
-        $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $title));
-        $caption = base64_encode($message->caption ?? '');
-
-        // Avtomatik yangi kod yaratish
+        $title = "";
+        
+        $parts = explode("|", $step);
+        if (!empty($parts[1])) {
+            $title = base64_decode($parts[1]);
+        }
+        
+        $title_file = __DIR__ . "/step/upload_title_{$cid}.txt";
+        if (empty($title) && file_exists($title_file)) {
+            $title = trim(file_get_contents($title_file));
+        }
+        
+        if (empty($title)) {
+            $raw_caption = $message->caption ?? '';
+            $file_name = $message->video->file_name ?? '';
+            $title = extract_clean_movie_title($raw_caption, $file_name);
+        }
+        
         $last_res = $connect->query("SELECT MAX(CAST(kino_ids AS UNSIGNED)) as max_code FROM movie_data");
         $max_code = ($last_res) ? (int)$last_res->fetch_assoc()['max_code'] : 0;
         $new_code = $max_code + 1;
-
-        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '$caption', '$file_id', '0', '$new_code', 'usual')");
-
-        sms($cid, "<b>✅ Kino muvaffaqiyatli saqlandi!</b>\n\n<b>🆔 Film kodi:</b> <code>$new_code</code>\n<b>🎬 Nomi:</b> " . htmlspecialchars($title), $movie_manager);
         
-        // Kanalga post tayyorlash
+        if (empty($title)) {
+            $title = "Kino #$new_code";
+        }
+        
+        $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $title));
+        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '', '$file_id', '0', '$new_code', 'usual')");
+
+        sms($cid, "<b>✅ Kino muvaffaqiyatli saqlandi!</b>\n\n🎬  :  <b>" . htmlspecialchars($title) . "</b>\n\n<b>🆔 Film kodi:</b> <code>$new_code</code>\n<b>🤖 Bizning bot:</b> @$bot", $movie_manager);
+        
         sms($cid, "<b>Kanalga post yuborishni xohlaysizmi?</b>", json_encode([
             'inline_keyboard' => [
                 [['text' => "📢 Kanalga post chiqarish", 'callback_data' => "postChannel=$new_code"]]
@@ -563,6 +651,60 @@ if ($step == "upload_movie_video" && admin($cid)) {
     exit();
 }
 
+// Admin bosh menyuda turib to'g'ridan-to'g'ri boshqa kanaldan videoni tashlasa:
+if (isset($message->video) && admin($cid) && ($step == "none" || empty($step))) {
+    $file_id = $message->video->file_id;
+    $raw_caption = $message->caption ?? '';
+    $file_name = $message->video->file_name ?? '';
+    $title = extract_clean_movie_title($raw_caption, $file_name);
+    
+    $last_res = $connect->query("SELECT MAX(CAST(kino_ids AS UNSIGNED)) as max_code FROM movie_data");
+    $max_code = ($last_res) ? (int)$last_res->fetch_assoc()['max_code'] : 0;
+    $new_code = $max_code + 1;
+    
+    if (!empty($title)) {
+        $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $title));
+        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '', '$file_id', '0', '$new_code', 'usual')");
+        
+        sms($cid, "<b>✅ Kino muvaffaqiyatli saqlandi!</b>\n\n🎬  :  <b>" . htmlspecialchars($title) . "</b>\n\n<b>🆔 Film kodi:</b> <code>$new_code</code>\n<b>🤖 Bizning bot:</b> @$bot", $movie_manager);
+        
+        sms($cid, "<b>Kanalga post yuborishni xohlaysizmi?</b>", json_encode([
+            'inline_keyboard' => [
+                [['text' => "📢 Kanalga post chiqarish", 'callback_data' => "postChannel=$new_code"]]
+            ]
+        ]));
+    } else {
+        @mkdir(__DIR__ . '/step', 0777, true);
+        file_put_contents(__DIR__ . "/step/temp_video_{$cid}.txt", $file_id);
+        step($cid, "set_title_for_temp_video|" . $new_code);
+        sms($cid, "<b>✅ Video qabul qilindi!</b>\n\n<b>🆔 Film kodi:</b> <code>$new_code</code>\n\n<i>Iltimos, bu kino uchun nom kiriting:</i>", $back_admin);
+    }
+    exit();
+}
+
+if (strpos($step, "set_title_for_temp_video|") === 0 && admin($cid)) {
+    if (!empty($text)) {
+        $code = explode("|", $step)[1];
+        $file_id_file = __DIR__ . "/step/temp_video_{$cid}.txt";
+        $file_id = file_exists($file_id_file) ? trim(file_get_contents($file_id_file)) : '';
+        if ($file_id) {
+            $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $text));
+            $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '', '$file_id', '0', '$code', 'usual')");
+            sms($cid, "<b>✅ Kino muvaffaqiyatli saqlandi!</b>\n\n🎬  :  <b>" . htmlspecialchars($title) . "</b>\n\n<b>🆔 Film kodi:</b> <code>$code</code>\n<b>🤖 Bizning bot:</b> @$bot", $movie_manager);
+            sms($cid, "<b>Kanalga post yuborishni xohlaysizmi?</b>", json_encode([
+                'inline_keyboard' => [
+                    [['text' => "📢 Kanalga post chiqarish", 'callback_data' => "postChannel=$code"]]
+                ]
+            ]));
+            @unlink($file_id_file);
+        } else {
+            sms($cid, "<b>Xatolik yuz berdi. Iltimos qaytadan urinib ko'ring.</b>", $movie_manager);
+        }
+        step($cid, "none");
+    }
+    exit();
+}
+
 // 2. Kino qo'shish (Maxsus kod bilan)
 if (($text == "🔢 Kod bilan qo'shish" || $text == "➕ Kino qo'shish (Kod bilan)") && admin($cid)) {
     sms($cid, "<b>Kino uchun kerakli raqamli kodni kiriting (masalan: 860):</b>", $back_admin);
@@ -572,39 +714,67 @@ if (($text == "🔢 Kod bilan qo'shish" || $text == "➕ Kino qo'shish (Kod bila
 
 if ($step == "custom_movie_code" && admin($cid)) {
     if (is_numeric($text)) {
-        file_put_contents("step/custom_code_{$cid}.txt", $text);
+        @mkdir(__DIR__ . '/step', 0777, true);
+        file_put_contents(__DIR__ . "/step/custom_code_{$cid}.txt", $text);
+        step($cid, "custom_movie_title|" . $text);
         sms($cid, "<b>✅ Kod: $text</b>\n\nEndi kino nomini kiriting:", $back_admin);
-        step($cid, "custom_movie_title");
     } else {
         sms($cid, "<b>Faqat raqamlardan iborat kod kiriting!</b>");
     }
     exit();
 }
 
-if ($step == "custom_movie_title" && admin($cid)) {
+if (strpos($step, "custom_movie_title") === 0 && admin($cid)) {
     if (!empty($text)) {
-        file_put_contents("step/custom_title_{$cid}.txt", $text);
-        sms($cid, "<b>✅ Nomi qabul qilindi!</b>\n\nEndi kinoni video formatida yuboring:", $back_admin);
-        step($cid, "custom_movie_video");
+        @mkdir(__DIR__ . '/step', 0777, true);
+        $parts = explode("|", $step);
+        $code = $parts[1] ?? (file_exists(__DIR__ . "/step/custom_code_{$cid}.txt") ? trim(file_get_contents(__DIR__ . "/step/custom_code_{$cid}.txt")) : '');
+        file_put_contents(__DIR__ . "/step/custom_title_{$cid}.txt", $text);
+        step($cid, "custom_movie_video|{$code}|" . base64_encode($text));
+        sms($cid, "<b>✅ Nomi qabul qilindi:</b> <i>" . htmlspecialchars($text) . "</i>\n\nEndi kinoni video formatida yuboring:", $back_admin);
     }
     exit();
 }
 
-if ($step == "custom_movie_video" && admin($cid)) {
+if (strpos($step, "custom_movie_video") === 0 && admin($cid)) {
     if (isset($message->video)) {
         $file_id = $message->video->file_id;
-        $code = file_get_contents("step/custom_code_{$cid}.txt");
-        $title = file_get_contents("step/custom_title_{$cid}.txt");
+        $code = "";
+        $title = "";
+        
+        $parts = explode("|", $step);
+        if (isset($parts[1])) $code = $parts[1];
+        if (isset($parts[2])) $title = base64_decode($parts[2]);
+        
+        if (empty($code) && file_exists(__DIR__ . "/step/custom_code_{$cid}.txt")) {
+            $code = trim(file_get_contents(__DIR__ . "/step/custom_code_{$cid}.txt"));
+        }
+        if (empty($title) && file_exists(__DIR__ . "/step/custom_title_{$cid}.txt")) {
+            $title = trim(file_get_contents(__DIR__ . "/step/custom_title_{$cid}.txt"));
+        }
+        if (empty($title)) {
+            $raw_caption = $message->caption ?? '';
+            $file_name = $message->video->file_name ?? '';
+            $title = extract_clean_movie_title($raw_caption, $file_name);
+        }
+        if (empty($title)) {
+            $title = "Kino #$code";
+        }
+        
         $title = $connect->real_escape_string(str_replace(["‘","’","´","`"], "'", $title));
-        $caption = base64_encode($message->caption ?? '');
+        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '', '$file_id', '0', '$code', 'usual')");
 
-        $connect->query("INSERT INTO movie_data (title, caption, movie_id, downloads, kino_ids, type) VALUES ('$title', '$caption', '$file_id', '0', '$code', 'usual')");
-
-        sms($cid, "<b>✅ Kino yuklandi!</b>\n\n<b>🆔 Kodi:</b> <code>$code</code>\n<b>🎬 Nomi:</b> " . htmlspecialchars($title), $movie_manager);
+        sms($cid, "<b>✅ Kino yuklandi!</b>\n\n🎬  :  <b>" . htmlspecialchars($title) . "</b>\n\n<b>🆔 Film kodi:</b> <code>$code</code>\n<b>🤖 Bizning bot:</b> @$bot", $movie_manager);
+        
+        sms($cid, "<b>Kanalga post yuborishni xohlaysizmi?</b>", json_encode([
+            'inline_keyboard' => [
+                [['text' => "📢 Kanalga post chiqarish", 'callback_data' => "postChannel=$code"]]
+            ]
+        ]));
         
         step($cid, "none");
-        @unlink("step/custom_code_{$cid}.txt");
-        @unlink("step/custom_title_{$cid}.txt");
+        @unlink(__DIR__ . "/step/custom_code_{$cid}.txt");
+        @unlink(__DIR__ . "/step/custom_title_{$cid}.txt");
     } else {
         sms($cid, "<b>Iltimos, video fayl yuboring!</b>");
     }
@@ -615,6 +785,32 @@ if ($step == "custom_movie_video" && admin($cid)) {
 if (strpos($data, "postChannel=") === 0) {
     $code = explode("=", $data)[1];
     del($cid, $mid);
+    
+    // Kinoni bazadan qidirib olish
+    $m_res = $connect->query("SELECT * FROM movie_data WHERE kino_ids = '$code' LIMIT 1");
+    if ($m_res && $m_res->num_rows > 0) {
+        $m_row = $m_res->fetch_assoc();
+        $m_title = htmlspecialchars($m_row['title']);
+        $channel_caption = "🎬  :  <b>{$m_title}</b>\n\n<b>🆔 Film kodi:</b> {$code}\n<b>🤖 Bizning bot:</b> @{$bot}";
+        
+        $p_res = bot('sendVideo', [
+            'chat_id' => $kanalcha,
+            'video' => $m_row['movie_id'],
+            'caption' => $channel_caption,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [['text' => "📥 Kinoni tomosha qilish", 'url' => "https://t.me/$bot?start=$code"]]
+                ]
+            ])
+        ]);
+        
+        if ($p_res && isset($p_res->ok) && $p_res->ok) {
+            sms($cid, "<b>✅ Post $kanalcha kanaliga muvaffaqiyatli yuborildi!</b>", $movie_manager);
+            exit();
+        }
+    }
+    
     sms($cid, "<b>Kanalga chiqarmoqchi bo'lgan postingizni (rasm/matn/video) forward qiling yoki shu yerga yozing:</b>", $back_admin);
     step($cid, "forwardToChannel_{$code}");
     exit();
