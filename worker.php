@@ -2,7 +2,7 @@
 // worker.php - Yuqori tezlikdagi Telegram Polling Runner
 set_time_limit(0);
 
-const API_KEY = "8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw";
+const API_KEY = "8708095966:AAHM39yxAmsZ6k46xxEN90AwODxjH-v_Ydc";
 
 function tg_request($method, $data = []) {
     static $ch = null;

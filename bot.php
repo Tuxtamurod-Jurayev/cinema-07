@@ -5,7 +5,7 @@ date_default_timezone_set('Asia/Tashkent');
 // ==========================================
 // ⚙️ ASOSIY SOZLAMALAR
 // ==========================================
-const API_KEY = "8708095966:AAFkZ8CoN_17QCHmqukGoSkJLnXGGNRMGLw";
+const API_KEY = "8708095966:AAHM39yxAmsZ6k46xxEN90AwODxjH-v_Ydc";
 $admin_id = "365446274";
 $admin_phone = "998930406364";
 $owners = [$admin_id];
